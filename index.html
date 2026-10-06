@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HireLight</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="logo" href="#/">
+      <span class="logo-dot"></span> HireLight <span class="logo-cn">招人快筛</span>
+    </a>
+    <nav class="nav">
+      <a href="#/" data-nav="landing" data-i18n="nav.how">Как это работает</a>
+      <a href="#/dashboard" data-nav="dashboard" data-i18n="nav.dash">Кабинет</a>
+      <div class="lang-switch" id="lang-switch">
+        <button type="button" data-lang="ru">Рус</button>
+        <button type="button" data-lang="zh">中文</button>
+        <button type="button" data-lang="en">Eng</button>
+      </div>
+      <a href="#/create" class="btn btn-primary btn-sm" data-nav="create" data-i18n="nav.create">Создать вакансию</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ЛЕНДИНГ -->
+  <section class="view" id="view-landing">
+    <div class="hero">
+      <div class="hero-text">
+        <div class="kicker" data-i18n="land.kicker">Для кофеен, салонов, розницы и сервисов</div>
+        <h1 data-i18n-html="land.h1">Отклики разбираются сами.<br>Вы выбираете людей.</h1>
+        <p class="lead" data-i18n="land.lead"></p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#/create" data-i18n="land.cta1"></a>
+          <a class="btn btn-ghost" href="#/dashboard" data-i18n="land.cta2"></a>
+        </div>
+      </div>
+      <div class="hero-card" id="hero-digest">
+        <div class="digest-title" data-i18n="land.digestTitle"></div>
+        <div class="digest-item">
+          <span class="badge badge-green" data-i18n="level.green"></span>
+          <b>Анна Соколова</b>
+          <span class="muted" data-i18n="land.digest1sub"></span>
+        </div>
+        <div class="digest-item">
+          <span class="badge badge-amber" data-i18n="level.amber"></span>
+          <b>Марина Ким</b>
+          <span class="muted" data-i18n="land.digest2sub"></span>
+        </div>
+        <div class="digest-item">
+          <span class="badge badge-red" data-i18n="level.red"></span>
+          <b>Дмитрий Волков</b>
+          <span class="muted" data-i18n="land.digest3sub"></span>
+        </div>
+        <div class="digest-foot muted" data-i18n="land.digestFoot"></div>
+      </div>
+    </div>
+
+    <div class="pains">
+      <div class="pain"><b data-i18n="land.pain1b"></b><span data-i18n="land.pain1"></span></div>
+      <div class="pain"><b data-i18n="land.pain2b"></b><span data-i18n="land.pain2"></span></div>
+      <div class="pain"><b data-i18n="land.pain3b"></b><span data-i18n="land.pain3"></span></div>
+    </div>
+
+    <h2 class="section-title" data-i18n="land.howTitle"></h2>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><b data-i18n="land.step1t"></b>
+        <p data-i18n="land.step1d"></p></div>
+      <div class="step"><div class="step-num">2</div><b data-i18n="land.step2t"></b>
+        <p data-i18n="land.step2d"></p></div>
+      <div class="step"><div class="step-num">3</div><b data-i18n="land.step3t"></b>
+        <p data-i18n="land.step3d"></p></div>
+    </div>
+
+    <div class="rules-band">
+      <div>
+        <h2 data-i18n="land.rulesTitle"></h2>
+        <p class="muted" data-i18n="land.rulesText"></p>
+      </div>
+      <div class="rule-chips">
+        <span class="chip" data-i18n="land.chip1"></span>
+        <span class="chip" data-i18n="land.chip2"></span>
+        <span class="chip" data-i18n="land.chip3"></span>
+        <span class="chip" data-i18n="land.chip4"></span>
+      </div>
+    </div>
+
+    <div class="cta-band">
+      <h2 data-i18n="land.ctaTitle"></h2>
+      <a class="btn btn-primary btn-lg" href="#/create" data-i18n="land.cta1"></a>
+    </div>
+  </section>
+
+  <!-- СОЗДАНИЕ ВАКАНСИИ -->
+  <section class="view narrow" id="view-create">
+    <h1 data-i18n="create.h1"></h1>
+    <p class="muted" data-i18n="create.lead"></p>
+    <form id="create-form" class="card form" novalidate>
+      <label><span data-i18n="create.title"></span>
+        <input type="text" name="title" required data-i18n-ph="ph.create.title">
+      </label>
+      <div class="form-row">
+        <label><span data-i18n="create.company"></span>
+          <input type="text" name="company" data-i18n-ph="ph.create.company">
+        </label>
+        <label><span data-i18n="create.district"></span>
+          <input type="text" name="district" required data-i18n-ph="ph.create.district">
+        </label>
+      </div>
+      <div class="form-row">
+        <label><span data-i18n="create.salary"></span>
+          <input type="number" name="salaryFrom" min="0" step="1000" placeholder="60000">
+        </label>
+        <label><span data-i18n="create.schedule"></span>
+          <input type="text" name="schedule" data-i18n-ph="ph.create.schedule">
+        </label>
+      </div>
+      <label><span data-i18n="create.desc"></span>
+        <textarea name="description" rows="3" data-i18n-ph="ph.create.desc"></textarea>
+      </label>
+      <label><span data-i18n="create.rules"></span>
+        <textarea name="rules" rows="5" required data-i18n-ph="ph.create.rules"></textarea>
+        <span class="hint" data-i18n="create.hint"></span>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" data-i18n="create.submit"></button>
+        <a class="btn btn-ghost" href="#/dashboard" data-i18n="create.cancel"></a>
+      </div>
+    </form>
+  </section>
+
+  <!-- ВАКАНСИЯ ОПУБЛИКОВАНА -->
+  <section class="view narrow" id="view-created">
+    <div class="success-mark">✓</div>
+    <h1 data-i18n="created.h1"></h1>
+    <p class="muted" data-i18n="created.lead"></p>
+    <div class="card share-card">
+      <div id="qr-box" class="qr-box"></div>
+      <div class="share-info">
+        <div class="share-link" id="share-link"></div>
+        <div class="share-actions">
+          <a class="btn btn-primary" id="btn-open-vacancy" href="#" data-i18n="created.open"></a>
+          <a class="btn btn-ghost" href="#/dashboard" data-i18n="created.toDash"></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- СТРАНИЦА ВАКАНСИИ (для кандидатов) -->
+  <section class="view narrow" id="view-apply">
+    <div id="apply-vacancy"></div>
+    <form id="apply-form" class="card form" novalidate>
+      <h2 data-i18n="apply.h2"></h2>
+      <div class="form-row">
+        <label><span data-i18n="apply.name"></span>
+          <input type="text" name="name" required data-i18n-ph="ph.apply.name">
+        </label>
+        <label><span data-i18n="apply.phone"></span>
+          <input type="tel" name="phone" required data-i18n-ph="ph.apply.phone">
+        </label>
+      </div>
+      <div class="form-row">
+        <label><span data-i18n="apply.years"></span>
+          <input type="number" name="years" min="0" max="60" step="1" placeholder="3">
+        </label>
+        <label><span data-i18n="apply.salary"></span>
+          <input type="number" name="salary" min="0" step="1000" placeholder="65000">
+        </label>
+      </div>
+      <label><span data-i18n="apply.district"></span>
+        <input type="text" name="district" data-i18n-ph="ph.apply.district">
+      </label>
+      <label><span data-i18n="apply.about"></span>
+        <textarea name="about" rows="4" required data-i18n-ph="ph.apply.about"></textarea>
+      </label>
+      <label><span data-i18n="apply.resume"></span>
+        <input type="file" name="resume" accept="image/*">
+        <img id="resume-thumb" class="resume-thumb" alt="" hidden>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" data-i18n="apply.submit"></button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ОТКЛИК ОТПРАВЛЕН -->
+  <section class="view narrow" id="view-applied">
+    <div class="success-mark">✓</div>
+    <h1 id="applied-title"></h1>
+    <p class="muted" id="applied-text"></p>
+    <div class="card applied-card">
+      <div class="digest-title" data-i18n="applied.whatsNext"></div>
+      <p class="muted" data-i18n="applied.nextText"></p>
+    </div>
+    <a class="btn btn-ghost" href="#/" data-i18n="applied.home"></a>
+  </section>
+
+  <!-- КАБИНЕТ -->
+  <section class="view" id="view-dashboard">
+    <div class="dash-head">
+      <h1 data-i18n="dash.h1"></h1>
+      <button class="btn btn-ghost btn-sm" id="btn-reset" data-i18n="dash.reset"></button>
+    </div>
+    <div id="vacancy-list" class="vacancy-list"></div>
+    <div id="vacancy-detail"></div>
+  </section>
+
+</main>
+
+<footer class="footer" data-i18n="footer.text"></footer>
+
+<script src="qrcode.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
