@@ -102,6 +102,10 @@
       'nav.create': 'Создать вакансию',
 
       'land.kicker': 'Для кофеен, салонов, розницы и сервисов',
+      'land.cf1': '⚡ AI-разбор анкет',
+      'land.cf2': 'QR → анкета за минуту',
+      'land.cf3': 'Дайджест вечером',
+      'land.marquee': 'ОТКЛИКИ РАЗБИРАЕТ AI • ПРАВИЛА СЛОВАМИ • QR-НАЙМ • ТРИ ЯЗЫКА • ДЛЯ МАЛОГО БИЗНЕСА • ',
       'land.big': 'ОТКЛИКИ',
       'land.badge': 'Живое демо',
       'land.orbit': 'HIRELIGHT · AI-СКРИНИНГ · 3 ЯЗЫКА · ПРАВИЛА СЛОВАМИ · ',
@@ -332,6 +336,10 @@
       'nav.create': 'Post a job',
 
       'land.kicker': 'For cafés, salons, retail and services',
+      'land.cf1': '⚡ AI application screening',
+      'land.cf2': 'QR → one-minute application',
+      'land.cf3': 'Evening digest',
+      'land.marquee': 'AI SCREENS APPLICATIONS • RULES IN PLAIN WORDS • QR HIRING • THREE LANGUAGES • FOR SMALL BUSINESS • ',
       'land.big': 'SCREENING',
       'land.badge': 'Live demo',
       'land.orbit': 'HIRELIGHT · AI SCREENING · 3 LANGUAGES · RULES IN WORDS · ',
@@ -562,6 +570,10 @@
       'nav.create': '发布职位',
 
       'land.kicker': '适用于咖啡馆、美发沙龙、零售与服务业',
+      'land.cf1': '⚡ AI 解析申请',
+      'land.cf2': '扫码 → 一分钟投递',
+      'land.cf3': '晚间摘要',
+      'land.marquee': 'AI 筛选申请 • 规则即文字 • 二维码招聘 • 三种语言 • 服务小微企业 • ',
       'land.big': '筛选',
       'land.badge': '在线演示',
       'land.orbit': 'HIRELIGHT · AI 筛选 · 三种语言 · 规则即文字 · ',

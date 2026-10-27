@@ -4,10 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HireLight</title>
-<link rel="stylesheet" href="app.css?v=5">
+<link rel="stylesheet" href="app.css?v=6">
 </head>
 <body>
 <div class="page-frame">
+<div id="scroll-progress" aria-hidden="true"></div>
 <header class="topbar">
   <div class="topbar-inner">
     <a class="logo" href="#/">
@@ -37,12 +38,12 @@
   <section class="view" id="view-landing">
     <div class="hero-grid">
       <div class="hero-big">
-        <a class="badge-orb" href="#/dashboard">
-          <span class="orb-star">✦</span>
-          <span data-i18n="land.badge"></span>
-        </a>
         <div class="giant" id="giant-word" data-i18n="land.big"></div>
-        <div class="giant-orb" aria-hidden="true"></div>
+        <div class="giant-orb" id="hero-orb" aria-hidden="true"></div>
+        <div class="giant-orb orb2" aria-hidden="true"></div>
+        <div class="chip-float cf1" data-i18n="land.cf1"></div>
+        <div class="chip-float cf2" data-i18n="land.cf2"></div>
+        <div class="chip-float cf3" data-i18n="land.cf3"></div>
       </div>
       <div class="hero-side">
         <div class="kicker" data-i18n="land.kicker"></div>
@@ -82,7 +83,7 @@
     </div>
 
     <h2 class="section-title" data-i18n="role.choose"></h2>
-    <div class="roles">
+    <div class="roles reveal">
       <a class="role-card" href="#/register/employer">
         <div class="role-ic">🏢</div>
         <b data-i18n="role.empT"></b>
@@ -97,14 +98,20 @@
       </a>
     </div>
 
-    <div class="pains">
+    <div class="pains reveal">
       <div class="pain"><b data-i18n="land.pain1b"></b><span data-i18n="land.pain1"></span></div>
       <div class="pain"><b data-i18n="land.pain2b"></b><span data-i18n="land.pain2"></span></div>
       <div class="pain"><b data-i18n="land.pain3b"></b><span data-i18n="land.pain3"></span></div>
     </div>
 
-    <h2 class="section-title" data-i18n="land.howTitle"></h2>
-    <div class="steps">
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span data-i18n="land.marquee"></span><span data-i18n="land.marquee"></span><span data-i18n="land.marquee"></span>
+      </div>
+    </div>
+
+    <h2 class="section-title reveal" data-i18n="land.howTitle"></h2>
+    <div class="steps reveal">
       <div class="step"><div class="step-num">1</div><b data-i18n="land.step1t"></b>
         <p data-i18n="land.step1d"></p></div>
       <div class="step"><div class="step-num">2</div><b data-i18n="land.step2t"></b>
@@ -113,7 +120,7 @@
         <p data-i18n="land.step3d"></p></div>
     </div>
 
-    <div class="rules-band">
+    <div class="rules-band reveal">
       <div>
         <h2 data-i18n="land.rulesTitle"></h2>
         <p class="muted" data-i18n="land.rulesText"></p>
@@ -126,7 +133,7 @@
       </div>
     </div>
 
-    <div class="cta-band">
+    <div class="cta-band reveal">
       <div class="cta-cell">
         <div>
           <h2 data-i18n="land.ctaTitle"></h2>
@@ -481,7 +488,7 @@
 </div>
 
 <script src="qrcode.js"></script>
-<script src="i18n.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="i18n.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

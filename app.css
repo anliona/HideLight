@@ -625,3 +625,88 @@ input.has-err, textarea.has-err, select.has-err { border-color: var(--red) !impo
   box-shadow: 0 0 10px rgba(51, 181, 255, .8);
   z-index: 100; transition: width .4s ease;
 }
+
+/* ═══ Интерактивный слой лендинга ═══ */
+#scroll-progress {
+  position: fixed; top: 0; left: 0;
+  height: 3px; width: 0;
+  background: linear-gradient(90deg, var(--blue-hi), var(--blue-deep));
+  box-shadow: 0 0 12px rgba(51, 181, 255, .8);
+  z-index: 200;
+  transition: width .12s linear;
+}
+
+/* парящие стеклянные чипы в герое */
+.chip-float {
+  position: absolute; z-index: 3;
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  font-size: 12.5px; font-weight: 700; color: var(--ink);
+  box-shadow: 0 8px 26px rgba(30, 60, 90, .14);
+  backdrop-filter: blur(6px);
+  animation: chipFloat 7s ease-in-out infinite alternate;
+  white-space: nowrap;
+}
+.chip-float.cf1 { top: 6%; right: 4%; animation-duration: 6s; }
+.chip-float.cf2 { top: 46%; right: 26%; animation-duration: 8.5s; animation-delay: .8s; }
+.chip-float.cf3 { bottom: 4%; left: 12%; animation-duration: 10s; animation-delay: 1.6s; }
+@keyframes chipFloat {
+  0%   { transform: translateY(-7px) rotate(-1.6deg); }
+  100% { transform: translateY(9px) rotate(1.4deg); }
+}
+
+/* второй орб — кольцо-пульсар у CTA */
+.giant-orb.orb2 {
+  right: 30%; top: 58%; width: 74px; height: 74px;
+  background: radial-gradient(circle at 40% 35%, rgba(91,198,255,.85) 0 22%, rgba(51,181,255,.35) 45%, transparent 68%);
+  filter: none;
+  animation: orb2Pulse 4.2s ease-in-out infinite alternate;
+}
+@keyframes orb2Pulse {
+  from { transform: scale(.82); opacity: .55; }
+  to   { transform: scale(1.12); opacity: .95; }
+}
+
+/* бегущая строка */
+.marquee {
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--white);
+  margin: 30px 0 0;
+  padding: 13px 0;
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marqueeMove 26s linear infinite;
+}
+.marquee-track span {
+  font-size: 13px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .14em;
+  color: var(--ink-2);
+  padding-right: 12px;
+}
+@keyframes marqueeMove { from { transform: translateX(0); } to { transform: translateX(-33.3333%); } }
+.marquee:hover .marquee-track { animation-play-state: paused; }
+
+/* появление секций при скролле */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity .7s ease, transform .7s ease;
+}
+.reveal.in-view { opacity: 1; transform: none; }
+.reveal-d1 .step { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
+.reveal-d1.in-view .step { opacity: 1; transform: none; }
+.reveal-d1.in-view .step:nth-child(2) { transition-delay: .15s; }
+.reveal-d1.in-view .step:nth-child(3) { transition-delay: .3s; }
+
+/* параллакс орба задают через transform в JS поверх анимации: используем отступ */
+@media (prefers-reduced-motion: reduce) {
+  .chip-float, .giant-orb, .orbit, .marquee-track { animation: none !important; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal-d1 .step { opacity: 1; transform: none; }
+}

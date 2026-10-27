@@ -303,6 +303,7 @@
   function clearDirty() { dirtyForm = null; }
   function route() {
     var target = location.hash || '#/';
+    observeReveals();
     if (dirtyForm && !suppressDirtyOnce) {
       var active = document.querySelector('.view.active');
       var formInActive = active && active.querySelector('#' + dirtyForm);
@@ -1017,6 +1018,25 @@
     })().catch(function (e2) { console.error(e2); setBusy(btn, false); });
   });
 
+  /* ══════════ Анимации лендинга: reveal, прогресс, параллакс ══════════ */
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) { en.target.classList.add('in-view'); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.12 });
+  function observeReveals() {
+    document.querySelectorAll('.reveal:not(.in-view)').forEach(function (el) { io.observe(el); });
+  }
+  window.addEventListener('scroll', function () {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    var p = max ? h.scrollTop / max : 0;
+    var bar = document.getElementById('scroll-progress');
+    if (bar) bar.style.width = Math.min(100, p * 100).toFixed(2) + '%';
+    var card = document.querySelector('.hero-card');
+    if (card) card.style.transform = 'translateY(' + (h.scrollTop * 0.08).toFixed(1) + 'px)';
+  }, { passive: true });
+
   /* ══════════ Старт ══════════ */
   (function init() {
     try {
@@ -1035,5 +1055,8 @@
       }
     } catch (e) {}
     route();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', observeReveals);
+    } else { observeReveals(); }
   })();
 })();
