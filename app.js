@@ -332,7 +332,7 @@
     var page = parts[0] || '';
     renderNav();
     if (page === '') return done('view-landing');
-    if (page === 'jobs') return done('view-jobs');
+    if (page === 'jobs') return renderJobs();
     if (page === 'job' && parts[1]) return renderJob(decodeURIComponent(parts[1]));
     if (page === 'login') { authMode = 'login'; return renderAuth(); }
     if (page === 'register') {
