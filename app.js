@@ -1,7 +1,9 @@
 /* HireLight — static full-app on GitHub Pages.
    Хранилище: textdb.online (бесплатный анонимный KV).
    AI: LLM API вызывается из браузера работодателя (ключ хранится локально),
-   без ключа работает детерминированный движок правил. */
+   без ключа работает детерминированный движок правил.
+   v4: исправления по UX-отчёту (спиннеры, гонка сессий, восстановление пароля,
+   подтверждение удаления, бейдж откликов, человечные вердикты, бонус-правила). */
 (function () {
   'use strict';
 
@@ -15,6 +17,7 @@
     const bytes = new Uint8Array(await new Response(st).arrayBuffer());
     let bin = '';
     for (const b of bytes) bin += String.fromCharCode(b);
+    // URL-safe base64: текстдб дважды декодирует '+' → ' ', поэтому сразу пишем -_
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   async function ungz(b64) {
@@ -35,28 +38,21 @@
       return JSON.parse(raw);
     } catch (e) { return null; }
   }
+  /* CORS скрывает ответ записи — пишем «маячком» и подтверждаем чтением
+     с запасом на репликацию; считаем доставленным и при медленном текстдб */
   async function cloudWrite(key, obj) {
     const val = await gz(JSON.stringify(obj));
-    // CORS скрывает ответ — пишем «маячком» (GET доходит до сервера),
-    // затем подтверждаем чтением с запасом на медленную репликацию textdb.
     try { await fetch('https://textdb.online/update?key=' + key + '&value=' + encodeURIComponent(val)); } catch (e) {}
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 1200));
       const back = await cloudRead(key);
       if (JSON.stringify(back) === JSON.stringify(obj)) return true;
       try { await fetch('https://textdb.online/update?key=' + key + '&value=' + encodeURIComponent(val)); } catch (e) {}
     }
-    // записывающий запрос отправлен; textdb может отдавать данные с задержкой —
-    // считаем доставленным, последующее чтение подтянется
-    return true;
-  }
-  async function cloudMutate(key, mutator, emptyValue) {
-    const cur = (await cloudRead(key)) || emptyValue;
-    const next = mutator(cur);
-    return (await cloudWrite(key, next)) ? next : null;
+    return true; // записывающий GET отправлен; чтение подтянется
   }
 
-  /* Пароли: PBKDF2-SHA256 (SubtleCrypto), хранится salt:hash */
+  /* ══════════ Пароли и восстановление ══════════ */
   async function pHash(password, salt) {
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -64,13 +60,19 @@
       { name: 'PBKDF2', salt: enc.encode(salt), iterations: 60000, hash: 'SHA-256' }, key, 256);
     const bytes = new Uint8Array(bits);
     let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
-    return salt + ':' + btoa(bin);
+    return salt + ':' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   async function pCheck(password, stored) {
     const [salt] = stored.split(':');
     return (await pHash(password, salt)) === stored;
   }
   function randId(p) { return p + Math.random().toString(36).slice(2, 10); }
+  function recCode() {
+    var abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', s = '';
+    var b = crypto.getRandomValues(new Uint8Array(8));
+    for (var i = 0; i < 8; i++) s += abc[b[i] % abc.length];
+    return s;
+  }
 
   /* ══════════ AI: LLM API (OpenAI-совместимый) ══════════ */
   function aiCfg() {
@@ -87,14 +89,13 @@
     const body = await r.json();
     return body.choices[0].message.content;
   }
-  /* AI-скрининг одной заявки; язык результатов — vacancy.lang */
   async function aiScreen(vacancy, company, application) {
-    const langName = { ru: 'русском', zh: 'китайском', en: 'English' }[vacancy.lang] || 'русском';
+    const langNameI = { ru: 'русском', zh: 'китайском', en: 'English' }[vacancy.lang] || 'русском';
     const sys = 'You are a precise hiring screener for small businesses. Answer ONLY with a valid JSON object, no markdown, no extra text.';
     const user =
       'VACANCY: ' + vacancy.title + ' at ' + (company || '') + ' (' + vacancy.district + ')' +
       (vacancy.salaryFrom ? ', salary from ' + vacancy.salaryFrom : '') + '\n' +
-      'SCREENING RULES (owner-defined, one per line):\n' +
+      'SCREENING RULES (owner-defined, one per line; rules ending with "— плюс" are bonus, not required):\n' +
       vacancy.rules.map((r, i) => (i + 1) + '. ' + r).join('\n') + '\n' +
       (vacancy.reqLang && vacancy.reqLang !== 'any'
         ? 'REQUIRED LANGUAGE: applicant must speak ' + vacancy.reqLang + '. Declared languages: ' + (application.langs || []).join(', ') + '\n'
@@ -105,10 +106,11 @@
         languages: application.langs, about: application.about }) + '\n\n' +
       'TASKS:\n' +
       '1. detectedLang: "ru"|"zh"|"en" of the about text.\n' +
-      '2. aboutTranslated: translate about into ' + langName + '.\n' +
-      '3. languageOk: true/false against REQUIRED LANGUAGE (if any) + short languageReason in ' + langName + '.\n' +
-      '4. For EVERY screening rule: verdict with short reason in ' + langName + '.\n' +
-      'Use only facts from the profile; unverifiable rules → pass=false and say what is missing.\n' +
+      '2. aboutTranslated: translate about into ' + langNameI + '.\n' +
+      '3. languageOk: true/false against REQUIRED LANGUAGE (if any) + short languageReason in ' + langNameI + '.\n' +
+      '4. For EVERY screening rule: verdict with a short friendly reason in ' + langNameI +
+      ' (for bonus rules say it is a plus, not required).\n' +
+      'Use only facts from the profile; unverifiable rules → pass=false and say what is worth clarifying on a call.\n' +
       'RESPOND JSON only: {"detectedLang":"ru","aboutTranslated":"...","languageOk":true,"languageReason":"...","verdicts":[{"rule":"...","pass":true,"reason":"..."}]}';
     const raw = await llmChat([
       { role: 'system', content: sys },
@@ -133,19 +135,22 @@
 
   /* ══════════ Движок правил (офлайн-фолбэк) ══════════ */
   const REASONS_T = {
-    ru: { yearsOk: w => 'опыт ' + w + ' — соответствует', yearsLow: (w, m) => 'опыт ' + w + ' — меньше требуемого (от ' + m + ')',
-      found: r => 'в анкете отмечено: «' + r + '»', missing: r => 'в анкете не найдено подтверждение: «' + r + '»',
+    ru: { yearsOk: w => 'опыт ' + w + ' — соответствует требованию', yearsLow: (w, m) => 'опыт ' + w + ' — меньше требуемого (от ' + m + ' года)',
+      found: r => 'в анкете видно: «' + r + '» — совпадает', missing: r => 'в анкете не видно «' + r + '» — стоит уточнить при звонке',
+      bonusOk: r => 'бонус: в анкете отмечено — «' + r + '»', bonusNeutral: r => 'бонус, не обязателен: «' + r + '»',
       langOk: l => 'владеет языком: ' + l, langBad: l => 'не владеет требуемым языком',
       yearsWord: n => { const a = n % 10, b = n % 100;
         if (a === 1 && b !== 11) return n + ' год';
         if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return n + ' года';
         return n + ' лет'; } },
-    zh: { yearsOk: w => '经验 ' + w + '——符合', yearsLow: (w, m) => '经验 ' + w + '——不足（至少 ' + m + ' 年）',
-      found: r => '申请中已确认："' + r + '"', missing: r => '申请中未找到佐证："' + r + '"',
+    zh: { yearsOk: w => '经验 ' + w + '——符合要求', yearsLow: (w, m) => '经验 ' + w + '——不足（至少 ' + m + ' 年）',
+      found: r => '申请中已确认："' + r + '"——匹配', missing: r => '申请中未见佐证："' + r + '"——建议电话确认',
+      bonusOk: r => '加分：申请中已确认——"' + r + '"', bonusNeutral: r => '加分项，非必须："' + r + '"',
       langOk: l => '会要求的语言：' + l, langBad: l => '不会要求的语言',
       yearsWord: n => n + ' 年' },
-    en: { yearsOk: w => w + ' of experience — matches', yearsLow: (w, m) => w + ' — less than required (from ' + m + ')',
-      found: r => 'confirmed in the application: "' + r + '"', missing: r => 'no confirmation found: "' + r + '"',
+    en: { yearsOk: w => w + ' of experience — matches the requirement', yearsLow: (w, m) => w + ' — less than required (from ' + m + ')',
+      found: r => 'confirmed in the application: "' + r + '" — matches', missing: r => 'not visible in the application: "' + r + '" — worth checking on a call',
+      bonusOk: r => 'bonus: confirmed in the application — "' + r + '"', bonusNeutral: r => 'bonus, not required: "' + r + '"',
       langOk: l => 'knows the required language: ' + l, langBad: l => 'does not speak the required language',
       yearsWord: n => n + (n === 1 ? ' year' : ' years') },
   };
@@ -172,11 +177,13 @@
     }
     const hay = tokens(application.about + ' ' + application.district);
     (vacancy.rules || []).forEach(rule => {
+      const soft = /—\s*(плюс|да)\s*$/i.test(rule.trim());
       const rl = String(rule).toLowerCase().replace(/ё/g, 'е');
       let m = rl.match(/от\s+(\d+)\s*(лет|года|год)/);
       if (m) {
         const min = +m[1], y = application.years || 0;
         if (y >= min) { reasons.push({ s: 'ok', text: T.yearsOk(T.yearsWord(y)) }); ok++; }
+        else if (soft) { reasons.push({ s: 'neutral', text: T.bonusNeutral(rule) }); }
         else { reasons.push({ s: 'bad', text: T.yearsLow(T.yearsWord(y), min) }); bad++; }
         return;
       }
@@ -191,6 +198,7 @@
       if (!kws.length) { reasons.push({ s: 'neutral', text: rule }); return; }
       const hit = kws.some(kw => kwMatch(kw, hay));
       if (hit) { reasons.push({ s: 'ok', text: T.found(rule) }); ok++; }
+      else if (soft) { reasons.push({ s: 'neutral', text: T.bonusNeutral(rule) }); }
       else { reasons.push({ s: 'bad', text: T.missing(rule) }); bad++; }
     });
     const score = (ok + bad) ? Math.round(ok / (ok + bad) * 100) : 50;
@@ -200,11 +208,13 @@
   }
 
   /* ══════════ Состояние ══════════ */
-  var me = null;          // {email, role, name, blob}
+  var me = null;
+  var cfg = { base: '', ai: false };
   var authMode = 'login';
   var authRole = 'seeker';
   var returnHash = null;
-  var busyMsg = null;
+  var authAt = 0;          // метка успешного входа/регистрации в этой сессии
+  var dirtyForm = null;    // id формы с несохранёнными данными
 
   function t(key, params) { return window.t(key, params); }
   function langName(code) { return t('langOpt.' + code); }
@@ -239,6 +249,22 @@
     return el('span', cls[status] || 'badge badge-gray', t(map[status] || status));
   }
 
+  /* ── P2-1: индикация облачных операций ── */
+  var topBar = null;
+  function setBusy(btn, on) {
+    if (btn) {
+      btn.classList.toggle('btn-busy', on);
+      btn.disabled = on;
+    }
+    if (on) {
+      if (!topBar) { topBar = document.createElement('div'); topBar.className = 'top-progress'; document.body.appendChild(topBar); }
+      requestAnimationFrame(function () { topBar.style.width = '75%'; });
+    } else if (topBar) {
+      topBar.style.width = '100%';
+      setTimeout(function () { if (topBar) topBar.style.width = '0'; }, 350);
+    }
+  }
+
   /* ══════════ Навигация ══════════ */
   function renderNav() {
     var jobs = document.querySelector('[data-nav="jobs"]');
@@ -249,7 +275,10 @@
     var logout = document.getElementById('btn-logout');
     [jobs, emp, meL, create, login, logout].forEach(function (a) { a.hidden = true; });
     jobs.hidden = false;
-    if (me && me.role === 'employer') { emp.hidden = false; create.hidden = false; }
+    if (me && me.role === 'employer') {
+      emp.hidden = false; create.hidden = false;
+      updateEmpBadge();
+    }
     if (me && me.role === 'seeker') meL.hidden = false;
     if (me) logout.hidden = false; else login.hidden = false;
   }
@@ -265,14 +294,31 @@
     fn();
   }
 
-  /* ══════════ Роутер ══════════ */
+  /* ── P1-2: гвард несохранённых форм при смене экрана ── */
+  var suppressDirtyOnce = false;
+  function markDirty(formId) {
+    dirtyForm = formId;
+    suppressDirtyOnce = false;
+  }
+  function clearDirty() { dirtyForm = null; }
   function route() {
-    var hash = location.hash || '#/';
-    var parts = hash.slice(2).split('/');
+    var target = location.hash || '#/';
+    if (dirtyForm && !suppressDirtyOnce) {
+      var active = document.querySelector('.view.active');
+      var formInActive = active && active.querySelector('#' + dirtyForm);
+      if (formInActive && !window.confirm(t('apply.dirtyWarn'))) {
+        location.hash = active.dataset.lastHash || '#/emp';
+        return;
+      }
+      dirtyForm = null;
+    }
+    suppressDirtyOnce = false;
+    var prev = location.hash;
+    var parts = target.slice(2).split('/');
     var page = parts[0] || '';
     renderNav();
-    if (page === '') return renderLanding();
-    if (page === 'jobs') return renderJobs();
+    if (page === '') return done('view-landing');
+    if (page === 'jobs') return done('view-jobs');
     if (page === 'job' && parts[1]) return renderJob(decodeURIComponent(parts[1]));
     if (page === 'login') { authMode = 'login'; return renderAuth(); }
     if (page === 'register') {
@@ -286,19 +332,26 @@
       return renderApply(decodeURIComponent(parts[1]));
     }
     if (page === 'applied') return renderApplied();
-    if (page === 'create') return requireEmployer(renderCreate);
-    if (page === 'created' && parts[1]) return requireEmployer(function () { renderCreated(parts[1]); });
-    if (page === 'emp') return requireEmployer(renderEmp);
+    if (page === 'create') return requireEmployer(function () { done('view-create'); markDirty('create-form'); });
+    if (page === 'created' && parts[1]) return requireEmployer(function () { clearDirty(); renderCreated(decodeURIComponent(parts[1])); });
+    if (page === 'emp') return requireEmployer(function () { clearDirty(); renderEmp(); });
     if (page === 'v' && parts[1]) return requireEmployer(function () { renderEmpVac(decodeURIComponent(parts[1])); });
-    if (page === 'me') return requireSeeker(renderMe);
-    renderLanding();
+    if (page === 'me') return requireSeeker(function () { clearDirty(); renderMe(); });
+    if (page === 'recover') return renderRecover();
+    return done('view-landing');
+
+    function done(viewId) {
+      var cur = document.querySelector('.view.active');
+      if (cur) cur.dataset.lastHash = prev;
+      show(viewId);
+    }
   }
   window.addEventListener('hashchange', route);
   document.addEventListener('langchange', function () { renderNav(); route(); });
 
   function renderLanding() { show('view-landing'); }
 
-  /* ══════════ Регистрация данных работодателя ══════════ */
+  /* ══════════ Блоб работодателя ══════════ */
   function myBlobKey() { return me && me.blob; }
   async function readMyBlob() {
     return (await cloudRead(myBlobKey())) ||
@@ -306,7 +359,38 @@
   }
   async function writeMyBlob(blob) { return cloudWrite(myBlobKey(), blob); }
 
+  /* ── P2-3: бейдж новых откликов ── */
+  function updateEmpBadge() {
+    if (!me || me.role !== 'employer' || !me.blob) return;
+    cloudRead(myBlobKey()).then(function (blob) {
+      var b = document.getElementById('nav-badge');
+      if (!b) return;
+      var news = (blob.applications || []).filter(function (a) { return a.status === 'new'; }).length;
+      var seen = parseInt(localStorage.getItem('hl_seen_' + me.email) || '0', 10);
+      if (news > seen) { b.textContent = news - seen; b.hidden = false; }
+      else b.hidden = true;
+    });
+  }
+  setInterval(function () { if (me && me.role === 'employer') updateEmpBadge(); }, 30000);
+
   /* ══════════ Авторизация ══════════ */
+  function setAuthErr(msg) {
+    var err = document.getElementById('auth-err');
+    err.textContent = msg;
+    err.hidden = false;
+  }
+  function setFieldErr(field, msg) {
+    var box = document.querySelector('[data-err="' + field + '"]');
+    if (box) { box.textContent = msg; box.hidden = false; }
+    var input = document.querySelector('#auth-form [name="' + field + '"]');
+    if (input) input.classList.add('has-err');
+  }
+  function clearAuthErrs() {
+    document.getElementById('auth-err').hidden = true;
+    document.querySelectorAll('#auth-form .field-err').forEach(function (b) { b.hidden = true; });
+    document.querySelectorAll('#auth-form .has-err').forEach(function (i) { i.classList.remove('has-err'); });
+    document.getElementById('auth-ok').hidden = true;
+  }
   function renderAuth() {
     var isReg = authMode === 'register';
     document.getElementById('auth-title').textContent = isReg ? t('auth.regT') : t('auth.loginT');
@@ -317,52 +401,98 @@
     var sw = document.getElementById('auth-switch');
     if (isReg) { sw.textContent = t('auth.hasAcc') + ' ' + t('auth.loginT'); sw.href = '#/login'; }
     else { sw.textContent = t('auth.noAcc') + ' ' + t('auth.regT'); sw.href = '#/register/' + authRole; }
-    document.getElementById('auth-err').hidden = true;
+    document.getElementById('auth-forgot').hidden = isReg;
+    clearAuthErrs();
+    if (loginPrefill) {
+      var em = document.querySelector('#auth-form input[name="email"]');
+      if (em) em.value = loginPrefill;
+      loginPrefill = null;
+    }
     show('view-auth');
   }
-  function authError(code) {
-    var err = document.getElementById('auth-err');
-    err.textContent = t(code === 'exists' ? 'auth.errExists' : code === 'creds' ? 'auth.errCreds' : 'auth.errFields');
-    err.hidden = false;
+  var loginPrefill = null;
+
+  function afterAuth(u, holdMs) {
+    authAt = Date.now();
+    me = { email: u.email, role: u.role, name: u.name, blob: u.blob || null };
+    try { localStorage.setItem('hl_me', JSON.stringify({ email: u.email })); } catch (e) {}
+    clearDirty();
+    var go = function () {
+      var dest = returnHash || (me.role === 'employer' ? '#/emp' : '#/jobs');
+      returnHash = null;
+      location.hash = dest;
+      if (location.hash === dest) route();
+    };
+    if (holdMs) setTimeout(go, holdMs); else go();
   }
+
   document.getElementById('auth-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
     var email = f.email.value.trim().toLowerCase();
     var password = f.password.value;
-    if (!email || password.length < 6 || (authMode === 'register' && !f.name.value.trim())) {
-      authError('fields'); return;
-    }
-    var busy = document.getElementById('auth-submit');
-    busy.disabled = true;
+    var btn = document.getElementById('auth-submit');
+    clearAuthErrs();
+    // P3-3: ошибки у конкретных полей
+    if (authMode === 'register' && !f.name.value.trim()) return setFieldErr('name', t('err.name'));
+    if (!email) return setFieldErr('email', t('err.email'));
+    if (password.length < 6) return setFieldErr('password', t('err.pass'));
+    setBusy(btn, true);
     (async function () {
       var reg = (await cloudRead(REG_KEY)) || { users: {} };
       if (authMode === 'register') {
-        if (reg.users[email]) return authError('exists');
+        if (reg.users[email]) {
+          setBusy(btn, false);
+          // P3-4: сообщение с переходом к входу
+          var err = document.getElementById('auth-err');
+          err.innerHTML = '';
+          err.appendChild(el('span', null, t('err.existsLogin') + ' '));
+          var go = el('a', null, t('auth.login') + ' →');
+          go.href = '#/login';
+          go.addEventListener('click', function () { loginPrefill = email; });
+          err.appendChild(go);
+          err.hidden = false;
+          return;
+        }
         var salt = Math.random().toString(36).slice(2, 14);
-        var rec = { ph: await pHash(password, salt), role: authRole, name: f.name.value.trim(), createdAt: Date.now() };
+        var rec = {
+          ph: await pHash(password, salt),
+          role: authRole, name: f.name.value.trim(), createdAt: Date.now(),
+        };
         if (authRole === 'employer') rec.blob = randId('hleb');
-        if (authRole === 'seeker') rec.apps = [];
+        if (authRole === 'seeker') {
+          rec.apps = [];
+          rec.recCode = recCode(); // P3-1: код восстановления
+        }
         reg.users[email] = rec;
-        var ok = await cloudWrite(REG_KEY, reg);
-        if (!ok) return authError('fields');
-        me = { email: email, role: authRole, name: rec.name, blob: rec.blob || null };
-        try { localStorage.setItem('hl_me', JSON.stringify({ email: email })); } catch (e) {}
+        await cloudWrite(REG_KEY, reg);
+        if (rec.recCode) {
+          var box = document.getElementById('auth-ok');
+          box.textContent = t('auth.recCode', { code: rec.recCode });
+          box.hidden = false;
+          afterAuth({ email: email, role: authRole, name: rec.name, blob: rec.blob || null }, 2600);
+        } else {
+          afterAuth({ email: email, role: authRole, name: rec.name, blob: rec.blob || null });
+        }
       } else {
         var u = reg.users[email];
-        if (!u || !(await pCheck(password, u.ph))) return authError('creds');
-        me = { email: email, role: u.role, name: u.name, blob: u.blob || null };
-        try { localStorage.setItem('hl_me', JSON.stringify({ email: email })); } catch (e) {}
+        if (!u || !(await pCheck(password, u.ph))) {
+          setBusy(btn, false);
+          return setAuthErr(t('auth.errCreds'));
+        }
+        setBusy(btn, false);
+        afterAuth({ email: email, role: u.role, name: u.name, blob: u.blob || null });
       }
-      busy.disabled = false;
-      var dest = returnHash || (me.role === 'employer' ? '#/emp' : '#/jobs');
-      returnHash = null;
-      location.hash = dest;
-      if (location.hash === dest) route();
-    })().catch(function (e2) { busy.disabled = false; authError('fields'); console.error(e2); });
+    })().catch(function (e2) {
+      console.error(e2);
+      setBusy(btn, false);
+      setAuthErr(t('auth.errFields'));
+    });
   });
+
   function doLogout() {
     me = null;
+    authAt = 0;
     try { localStorage.removeItem('hl_me'); localStorage.removeItem('hl_ai'); } catch (e) {}
     renderNav();
     location.hash = '#/';
@@ -401,25 +531,30 @@
     });
   }
 
-  /* ══════════ Страница вакансии ══════════ */
+  /* ══════════ Страница вакансии (P3-2: показываем компанию) ══════════ */
+  function vacancyHead(v) {
+    var head = el('div', 'card');
+    head.appendChild(el('div', 'kicker', v.company));
+    head.appendChild(el('h1', null, v.title));
+    var stats = el('div', 'vacancy-stats');
+    if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
+    if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
+    stats.appendChild(el('span', 'chip', v.district));
+    head.appendChild(stats);
+    if (v.description) head.appendChild(el('p', 'muted', v.description));
+    if (v.companyDesc) head.appendChild(el('p', 'muted', v.companyDesc));
+    if (v.reqLang && v.reqLang !== 'any') {
+      head.appendChild(el('div', 'lang-note', t('apply.langNote', { lang: langName(v.reqLang) })));
+    }
+    return head;
+  }
+
   function renderJob(id) {
     findInFeed(id).then(function (v) {
       if (!v) { location.hash = '#/jobs'; return; }
       var box = document.getElementById('job-body');
       clear(box);
-      var head = el('div', 'card');
-      head.appendChild(el('div', 'kicker', v.company));
-      head.appendChild(el('h1', null, v.title));
-      var stats = el('div', 'vacancy-stats');
-      if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
-      if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
-      stats.appendChild(el('span', 'chip', v.district));
-      head.appendChild(stats);
-      if (v.description) head.appendChild(el('p', 'muted', v.description));
-      if (v.reqLang && v.reqLang !== 'any') {
-        head.appendChild(el('div', 'lang-note', t('apply.langNote', { lang: langName(v.reqLang) })));
-      }
-      box.appendChild(head);
+      box.appendChild(vacancyHead(v));
       var cta = document.getElementById('job-cta');
       clear(cta);
       var banner = el('div', 'job-banner');
@@ -446,18 +581,7 @@
       if (!v) { location.hash = '#/jobs'; return; }
       var box = document.getElementById('apply-vacancy');
       clear(box);
-      var head = el('div', 'card');
-      head.appendChild(el('div', 'kicker', v.company));
-      head.appendChild(el('h1', null, v.title));
-      var stats = el('div', 'vacancy-stats');
-      if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
-      if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
-      head.appendChild(stats);
-      if (v.description) head.appendChild(el('p', 'muted', v.description));
-      if (v.reqLang && v.reqLang !== 'any') {
-        head.appendChild(el('div', 'lang-note', t('apply.langNote', { lang: langName(v.reqLang) })));
-      }
-      box.appendChild(head);
+      box.appendChild(vacancyHead(v));
       var form = document.getElementById('apply-form');
       form.dataset.vacancyId = id;
       form.name.value = me.name || '';
@@ -466,6 +590,7 @@
     });
   }
 
+  document.getElementById('apply-form').addEventListener('input', function () { markDirty('apply-form'); });
   document.getElementById('apply-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
@@ -475,15 +600,17 @@
     if (!langs.length) { document.getElementById('lang-err').hidden = false; return; }
     document.getElementById('lang-err').hidden = true;
     var btn = f.querySelector('button[type="submit"]');
-    btn.disabled = true;
+    setBusy(btn, true);
     (async function () {
       var feed = (await cloudRead(JOBS_KEY)) || [];
       var v = feed.find(function (x) { return x.id === vid; });
-      if (!v) { btn.disabled = false; return; }
+      if (!v) { setBusy(btn, false); return; }
       var blob = (await cloudRead(v.blob)) ||
         { company: { name: v.company }, vacancies: [], applications: [] };
       if ((blob.applications || []).some(function (a) { return a.seekerEmail === me.email && a.vacancyId === vid; })) {
-        alert(t('apply.dup')); btn.disabled = false; return;
+        setBusy(btn, false);
+        alert(t('apply.dup'));
+        return;
       }
       var application = {
         id: randId('app'), vacancyId: vid, seekerEmail: me.email,
@@ -498,9 +625,7 @@
       application.status = application.screening.autoDeclined ? 'declined' : 'new';
       blob.applications = (blob.applications || []).filter(function (a) { return a.id !== application.id; });
       blob.applications.push(application);
-      var okWrite = await cloudWrite(v.blob, blob);
-      if (!okWrite) { alert(t('apply.aiErr')); btn.disabled = false; return; }
-      // индекс в кабинете соискателя
+      await cloudWrite(v.blob, blob);
       await cloudMutate(REG_KEY, function (reg) {
         reg.users = reg.users || {};
         var u = reg.users[me.email] || (reg.users[me.email] = { apps: [] });
@@ -509,12 +634,13 @@
         u.apps.push({ blob: v.blob, appId: application.id, createdAt: application.createdAt });
         return reg;
       }, { users: {} });
+      clearDirty();
       sessionStorage.setItem('hl-last-verdict', JSON.stringify({
         status: application.status,
         screening: { aiError: application.screening.aiError || null },
       }));
       location.hash = '#/applied';
-    })().catch(function (e2) { console.error(e2); btn.disabled = false; alert(t('auth.errFields')); });
+    })().catch(function (e2) { console.error(e2); setBusy(btn, false); alert(t('auth.errFields')); });
   });
 
   function renderApplied() {
@@ -529,13 +655,19 @@
   /* ══════════ Кабинет работодателя ══════════ */
   function renderCreate() { show('view-create'); }
 
+  document.getElementById('create-form').addEventListener('input', function () { markDirty('create-form'); });
   document.getElementById('create-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
     var rules = f.rules.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!f.title.value.trim() || !f.district.value.trim() || !rules.length) { f.reportValidity(); return; }
-    var btn = e.target.querySelector('button[type="submit"]');
-    btn.disabled = true;
+    if (!f.title.value.trim() || !f.district.value.trim() || !rules.length) {
+      // P3-3: подсветка поля без правил
+      if (!rules.length) setFieldErr('rules', t('err.fields'));
+      f.reportValidity();
+      return;
+    }
+    var btn = f.querySelector('button[type="submit"]');
+    setBusy(btn, true);
     (async function () {
       var blob = await readMyBlob();
       var v = {
@@ -552,20 +684,20 @@
       blob.vacancies = (blob.vacancies || []).filter(function (x) { return x.id !== v.id; });
       blob.vacancies.push(v);
       if (!blob.company) blob.company = { name: me.name };
-      var okBlob = await writeMyBlob(blob);
+      await writeMyBlob(blob);
       var feed = (await cloudRead(JOBS_KEY)) || [];
       feed = feed.filter(function (x) { return x.id !== v.id; });
       feed.push({
         id: v.id, blob: myBlobKey(), title: v.title, company: blob.company.name,
+        companyDesc: blob.company.desc || '', companyCity: blob.company.city || '',
         district: v.district, salaryFrom: v.salaryFrom, schedule: v.schedule,
         reqLang: v.reqLang, description: v.description, createdAt: v.createdAt,
       });
-      var okFeed = await cloudWrite(JOBS_KEY, feed);
-      btn.disabled = false;
-      if (!okBlob || !okFeed) { alert(t('apply.aiErr')); return; }
-      f.reset();
+      await cloudWrite(JOBS_KEY, feed);
+      setBusy(btn, false);
+      clearDirty();
       location.hash = '#/created/' + encodeURIComponent(v.id);
-    })().catch(function (e2) { console.error(e2); btn.disabled = false; });
+    })().catch(function (e2) { console.error(e2); setBusy(btn, false); });
   });
 
   function renderCreated(id) {
@@ -612,16 +744,22 @@
         item.addEventListener('click', function () { location.hash = '#/v/' + encodeURIComponent(v.id); });
         list.appendChild(item);
       });
+      // открытие кабинета = «отклики просмотрены»
+      try { localStorage.setItem('hl_seen_' + me.email, String((blob.applications || []).filter(function (a) { return a.status === 'new'; }).length)); } catch (e) {}
+      updateEmpBadge();
     })();
   }
 
   document.getElementById('company-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
+    var btn = f.querySelector('button[type="submit"]');
+    setBusy(btn, true);
     (async function () {
       var blob = await readMyBlob();
       blob.company = { name: f.name.value.trim() || me.name, city: f.city.value.trim(), desc: f.desc.value.trim() };
       await writeMyBlob(blob);
+      setBusy(btn, false);
       var b = el('span', 'badge badge-green', t('emp.saved'));
       e.target.querySelector('.form-actions').appendChild(b);
       setTimeout(function () { b.remove(); }, 2000);
@@ -653,12 +791,28 @@
       back.href = '#/emp';
       head.appendChild(back);
       head.appendChild(el('h1', null, (v ? v.title : '—') + ' · ' + ((blob.company || {}).name || '')));
+      var del = el('button', 'btn btn-danger btn-sm', t('emp.delete'));
+      del.addEventListener('click', function () {
+        // P2-4: подтверждение перед необратимым удалением
+        if (!window.confirm(t('v.confirmDelete'))) return;
+        blob.vacancies = (blob.vacancies || []).filter(function (x) { return x.id !== vid; });
+        blob.applications = (blob.applications || []).filter(function (a) { return a.vacancyId !== vid; });
+        writeMyBlob(blob).then(function () {
+          cloudRead(JOBS_KEY).then(function (feed) {
+            feed = (feed || []).filter(function (x) { return x.id !== vid; });
+            cloudWrite(JOBS_KEY, feed).then(function () { location.hash = '#/emp'; });
+          });
+        });
+      });
+      head.appendChild(del);
       var body = document.getElementById('empvac-body');
       clear(body);
       if (!v) { body.appendChild(el('p', 'muted', t('jobs.empty'))); return; }
+
       var all = (blob.applications || []).filter(function (a) { return a.vacancyId === vid; })
         .sort(function (x, y) { return y.createdAt - x.createdAt; });
-      // AI-дожим: заявки без разбора, если ключ подключён — прогоняем здесь же
+
+      // AI-дожим: заявки без разбора, если ключ подключён
       var pending = all.filter(function (a) { return !a.screening; });
       var cfgAi = aiCfg();
       if (pending.length && cfgAi) {
@@ -667,7 +821,7 @@
         for (var i = 0; i < pending.length; i++) {
           try {
             pending[i].screening = await aiScreen(v, (blob.company || {}).name, pending[i]);
-            pending[i].status = pending[i].screening.autoDeclined ? 'declined' : pending[i].status;
+            if (pending[i].screening.autoDeclined) pending[i].status = 'declined';
           } catch (e) {
             pending[i].screening = rulesScreen(v, pending[i]);
             pending[i].screening.aiError = e.message;
@@ -676,10 +830,6 @@
         await writeMyBlob(blob);
         note.remove();
       }
-      pending.forEach(function (a) {
-        if (!a.screening) a.screening = rulesScreen(v, a);
-        if (a.screening.autoDeclined) a.status = 'declined';
-      });
 
       var active = all.filter(function (a) { return a.status !== 'declined'; });
       var declined = all.filter(function (a) { return a.status === 'declined'; });
@@ -710,7 +860,7 @@
         declined.forEach(function (a) { g2.appendChild(applicantCard(blob, v, a)); });
         body.appendChild(g2);
       }
-      if (pending.length && cfgAi) await writeMyBlob(blob);
+      show('view-empvac');
     })();
   }
 
@@ -745,6 +895,10 @@
     }
 
     var reasons = el('div', 'reasons');
+    // человечная сводка: совпадение по N из M обязательных правил
+    var okN = (a.screening.reasons || []).filter(function (r) { return r.s === 'ok'; }).length;
+    var reqN = (a.screening.reasons || []).filter(function (r) { return r.s !== 'neutral'; }).length;
+    if (reqN) reasons.appendChild(el('div', null, t('rules.matchLine', { ok: okN, all: reqN })));
     (a.screening.reasons || []).forEach(function (r) {
       var line = el('div', 'reason ' + (r.s === 'ok' ? 'ok' : r.s === 'bad' ? 'bad' : 'neutral'));
       line.appendChild(el('span', 'mark', r.s === 'ok' ? '✓' : r.s === 'bad' ? '✕' : '·'));
@@ -758,11 +912,13 @@
       var invite = el('button', 'btn btn-primary btn-sm', t('c.invite'));
       invite.addEventListener('click', function () {
         a.status = 'invited';
+        setBusy(invite, true);
         writeMyBlob(blob).then(function () { renderEmpVac(v.id); });
       });
       var decline = el('button', 'btn btn-danger btn-sm', t('c.decline'));
       decline.addEventListener('click', function () {
         a.status = 'declined';
+        setBusy(decline, true);
         writeMyBlob(blob).then(function () { renderEmpVac(v.id); });
       });
       actions.appendChild(invite);
@@ -819,7 +975,47 @@
     })();
   }
 
-  /* ══════════ Сброс демо-данных убран: данные живут в облаке ══════════ */
+  /* ══════════ Восстановление пароля (P3-1) ══════════ */
+  function renderRecover() {
+    document.getElementById('rec-err').hidden = true;
+    show('view-recover');
+  }
+
+  document.getElementById('recover-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = e.target;
+    var email = f.email.value.trim().toLowerCase();
+    var code = f.code.value.trim().toUpperCase();
+    var pass = f.password.value;
+    var errBox = document.getElementById('rec-err');
+    errBox.hidden = true;
+    if (!email || !code || pass.length < 6) {
+      errBox.textContent = t('auth.errFields');
+      errBox.hidden = false;
+      return;
+    }
+    var btn = f.querySelector('button[type="submit"]');
+    setBusy(btn, true);
+    (async function () {
+      var reg = (await cloudRead(REG_KEY)) || { users: {} };
+      var u = reg.users[email];
+      if (!u || !u.recCode || u.recCode !== code) {
+        setBusy(btn, false);
+        errBox.textContent = t('rec.err');
+        errBox.hidden = false;
+        return;
+      }
+      var salt = Math.random().toString(36).slice(2, 14);
+      u.ph = await pHash(pass, salt);
+      delete u.recCode;
+      await cloudWrite(REG_KEY, reg);
+      setBusy(btn, false);
+      errBox.textContent = t('rec.ok');
+      errBox.hidden = false;
+      errBox.classList.add('about-translated');
+      setTimeout(function () { location.hash = '#/login'; }, 1800);
+    })().catch(function (e2) { console.error(e2); setBusy(btn, false); });
+  });
 
   /* ══════════ Старт ══════════ */
   (function init() {
@@ -827,6 +1023,9 @@
       var saved = JSON.parse(localStorage.getItem('hl_me') || 'null');
       if (saved && saved.email) {
         cloudRead(REG_KEY).then(function (reg) {
+          // P1-2: если во время загрузки пользователь уже вошёл/зарегистрировался
+          // в этой сессии — не перебиваем его состояние устаревшим реестром
+          if (authAt) { route(); return; }
           var u = reg && reg.users && reg.users[saved.email];
           me = u ? { email: saved.email, role: u.role, name: u.name, blob: u.blob || null } : null;
           if (!me) { try { localStorage.removeItem('hl_me'); } catch (e) {} }

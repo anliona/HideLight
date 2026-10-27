@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HireLight</title>
-<link rel="stylesheet" href="app.css?v=3">
+<link rel="stylesheet" href="app.css?v=5">
 </head>
 <body>
 <div class="page-frame">
@@ -16,7 +16,7 @@
     <nav class="nav">
       <a href="#/" data-nav="landing" data-i18n="nav.how">Как это работает</a>
       <a href="#/jobs" data-nav="jobs" data-i18n="nav.jobs" hidden></a>
-      <a href="#/emp" data-nav="emp" data-i18n="nav.dash" hidden></a>
+      <a href="#/emp" data-nav="emp" hidden><span data-i18n="nav.dash"></span><span class="nav-badge" id="nav-badge" hidden></span></a>
       <a href="#/me" data-nav="me" data-i18n="nav.cab" hidden></a>
       <a href="#/heat" data-nav="heat" data-i18n="heat.nav" hidden></a>
       <div class="lang-switch" id="lang-switch">
@@ -275,18 +275,23 @@
     <form id="auth-form" class="card form" novalidate>
       <label id="auth-name-lbl"><span data-i18n="auth.name"></span>
         <input type="text" name="name" autocomplete="name">
+        <div class="field-err" data-err="name" hidden></div>
       </label>
       <label><span data-i18n="auth.email"></span>
         <input type="email" name="email" required autocomplete="email" placeholder="you@mail.com">
+        <div class="field-err" data-err="email" hidden></div>
       </label>
       <label><span data-i18n="auth.pass"></span>
         <input type="password" name="password" required minlength="6" autocomplete="current-password">
+        <div class="field-err" data-err="password" hidden></div>
       </label>
       <div class="field-err" id="auth-err" hidden></div>
+      <div id="auth-ok" class="lang-note" hidden></div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" id="auth-submit"></button>
         <a class="btn btn-ghost" id="auth-switch" href="#/login"></a>
       </div>
+      <a href="#/recover" id="auth-forgot" class="forgot-link" hidden data-i18n="auth.forgot"></a>
     </form>
   </section>
 
@@ -357,6 +362,28 @@
       <a class="btn btn-primary" href="#/me" data-i18n="nav.cab"></a>
       <a class="btn btn-ghost" href="#/jobs" data-i18n="nav.jobs"></a>
     </div>
+  </section>
+
+  <!-- ВОССТАНОВЛЕНИЕ ПАРОЛЯ -->
+  <section class="view narrow" id="view-recover">
+    <h1 data-i18n="rec.title"></h1>
+    <p class="muted" data-i18n="rec.sub"></p>
+    <form id="recover-form" class="card form" novalidate>
+      <label><span data-i18n="auth.email"></span>
+        <input type="email" name="email" required>
+      </label>
+      <label><span data-i18n="rec.code"></span>
+        <input type="text" name="code" required>
+      </label>
+      <label><span data-i18n="rec.newPass"></span>
+        <input type="password" name="password" required minlength="6">
+      </label>
+      <div class="field-err" id="rec-err" hidden></div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" data-i18n="rec.btn"></button>
+        <a class="btn btn-ghost" href="#/login" data-i18n="rec.back"></a>
+      </div>
+    </form>
   </section>
 
   <!-- КАБИНЕТ РАБОТОДАТЕЛЯ -->
@@ -454,7 +481,7 @@
 </div>
 
 <script src="qrcode.js"></script>
-<script src="i18n.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="i18n.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
