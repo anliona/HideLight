@@ -5,5 +5,5 @@
 window.HL_AI = {
   base: 'https://api.deepseek.com',
   model: 'deepseek-chat',
-  key: '' // ← сюда вставляется ключ DeepSeek (sk-...)
+  key: 'sk-f55c872ca91e44de98b78f5a43721875' // ключ платформы DeepSeek
 };

@@ -91,7 +91,14 @@
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
       body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2, max_tokens: maxTokens || 900 }),
     });
-    if (!r.ok) throw new Error('LLM ' + r.status);
+    if (!r.ok) {
+      var detail = '';
+      try { detail = (await r.text()).slice(0, 200); } catch (e) {}
+      var err = new Error('LLM ' + r.status);
+      err.status = r.status;
+      err.detail = detail;
+      throw err;
+    }
     const body = await r.json();
     return body.choices[0].message.content;
   }
@@ -787,7 +794,7 @@
     var pEl = document.getElementById('ai-pending');
     setBusy(btn, true);
     (async function () {
-      var done = 0, failed = false;
+      var done = 0, failed = false, failMsg = null;
       try {
         var blob = await readMyBlob();
         var vacs = blob.vacancies || [];
@@ -806,12 +813,15 @@
               apps[j].screening = rulesScreen(v, apps[j]);
               apps[j].screening.aiError = e.message;
               failed = true;
+              if (!failMsg && e.status === 402) failMsg = t('emp.aiNoBalance');
+              if (!failMsg && (e.status === 401 || e.status === 403)) failMsg = t('emp.aiBadKey');
             }
           }
         }
         await writeMyBlob(blob);
-        if (stEl) stEl.textContent = failed ? t('emp.aiFail') : t('emp.aiDone', { n: done });
+        if (stEl) stEl.textContent = failed ? (failMsg || t('emp.aiFail')) : t('emp.aiDone', { n: done });
         if (pEl) pEl.textContent = t('emp.aiNoPending');
+        if (failMsg) stEl.className = 'off';
       } catch (e2) { console.error(e2); }
       setBusy(btn, false);
     })();
