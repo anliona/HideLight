@@ -420,20 +420,10 @@
       <div class="card" id="ai-card">
         <div class="digest-title" data-i18n="emp.ai"></div>
         <p class="muted" id="ai-status" style="font-size:13.5px"></p>
-        <form id="ai-form" class="form">
-          <label><span data-i18n="emp.aiBase"></span>
-            <input type="text" name="base" placeholder="https://api.openai.com/v1">
-          </label>
-          <label><span data-i18n="emp.aiModel"></span>
-            <input type="text" name="model" placeholder="gpt-4o-mini">
-          </label>
-          <label><span data-i18n="emp.aiKey"></span>
-            <input type="password" name="key" placeholder="sk-...">
-          </label>
-          <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm" data-i18n="emp.connect"></button>
-          </div>
-        </form>
+        <p class="muted" id="ai-pending" style="font-size:13.5px"></p>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-ai-run" data-i18n="emp.aiRun"></button>
+        </div>
       </div>
     </div>
     <div class="dash-head" style="margin-top:30px">
@@ -488,7 +478,8 @@
 </div>
 
 <script src="qrcode.js"></script>
-<script src="i18n.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="i18n.js?v=7"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

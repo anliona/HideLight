@@ -76,8 +76,14 @@
 
   /* ══════════ AI: LLM API (OpenAI-совместимый) ══════════ */
   function aiCfg() {
-    try { return JSON.parse(localStorage.getItem('hl_ai') || 'null'); } catch (e) { return null; }
+    // Ключ один на всех: задаётся владельцем платформы в config.js,
+    // работодатели ничего не вводят и не могут отключить AI
+    var c = window.HL_AI || {};
+    return (c.key && c.key.length > 10)
+      ? { base: c.base, model: c.model, key: c.key }
+      : null;
   }
+  function aiEnabled() { return !!aiCfg(); }
   async function llmChat(messages, maxTokens) {
     const cfg = aiCfg();
     const r = await fetch(cfg.base.replace(/\/$/, '') + '/chat/completions', {
@@ -726,9 +732,13 @@
       cf.desc.value = (blob.company && blob.company.desc) || '';
       var st = document.getElementById('ai-status');
       var cfgAi = aiCfg();
-      st.textContent = cfgAi ? t('emp.aiOn') + ' · ' + cfgAi.model : t('emp.aiOff');
+      st.textContent = cfgAi ? t('emp.aiReady') + ' · ' + cfgAi.model : t('emp.aiKeyMissing');
       st.className = cfgAi ? 'on' : 'off';
-      document.getElementById('ai-form').style.display = cfgAi ? 'none' : 'block';
+      var pendingCount = (blob.applications || []).filter(function (a) { return !a.screening; }).length;
+      var pEl = document.getElementById('ai-pending');
+      if (pEl) pEl.textContent = pendingCount ? t('emp.aiPending', { n: pendingCount }) : t('emp.aiNoPending');
+      var runBtn = document.getElementById('btn-ai-run');
+      if (runBtn) runBtn.disabled = !cfgAi || !pendingCount;
       var list = document.getElementById('emp-vacs');
       clear(list);
       var vacs = (blob.vacancies || []).slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
@@ -767,17 +777,44 @@
     })();
   });
 
-  document.getElementById('ai-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var f = e.target;
-    try {
-      localStorage.setItem('hl_ai', JSON.stringify({
-        base: f.base.value.trim() || 'https://api.openai.com/v1',
-        model: f.model.value.trim() || 'gpt-4o-mini',
-        key: f.key.value.trim(),
-      }));
-      renderEmp();
-    } catch (e2) { alert(t('auth.errFields')); }
+  /* ══════════ Кнопка AI-скрининга ══════════
+     Ключ DeepSeek принадлежит платформе; работодатель лишь запускает разбор
+     всех откликов, у которых ещё нет вердикта. */
+  document.getElementById('btn-ai-run').addEventListener('click', function () {
+    var btn = this;
+    if (btn.disabled) return;
+    var stEl = document.getElementById('ai-status');
+    var pEl = document.getElementById('ai-pending');
+    setBusy(btn, true);
+    (async function () {
+      var done = 0, failed = false;
+      try {
+        var blob = await readMyBlob();
+        var vacs = blob.vacancies || [];
+        for (var i = 0; i < vacs.length; i++) {
+          var v = vacs[i];
+          var apps = (blob.applications || []).filter(function (a) {
+            return a.vacancyId === v.id && !a.screening;
+          });
+          for (var j = 0; j < apps.length; j++) {
+            if (stEl) stEl.textContent = t('emp.aiRunning') + ' (' + (done + 1) + ')';
+            try {
+              apps[j].screening = await aiScreen(v, (blob.company || {}).name, apps[j]);
+              if (apps[j].screening.autoDeclined) apps[j].status = 'declined';
+              done++;
+            } catch (e) {
+              apps[j].screening = rulesScreen(v, apps[j]);
+              apps[j].screening.aiError = e.message;
+              failed = true;
+            }
+          }
+        }
+        await writeMyBlob(blob);
+        if (stEl) stEl.textContent = failed ? t('emp.aiFail') : t('emp.aiDone', { n: done });
+        if (pEl) pEl.textContent = t('emp.aiNoPending');
+      } catch (e2) { console.error(e2); }
+      setBusy(btn, false);
+    })();
   });
 
   /* ══════════ Отклики работодателя ══════════ */
