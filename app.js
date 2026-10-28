@@ -29,14 +29,26 @@
     const st = new Blob([bytes]).stream().pipeThrough(ds);
     return await new Response(st).text();
   }
-  async function cloudRead(key) {
-    try {
-      const r = await fetch('https://textdb.online/' + key + '?cb=' + Date.now());
-      const txt = (await r.text()).trim();
-      if (!txt) return null;
-      const raw = txt.startsWith('H4sI') ? await ungz(txt) : txt;
-      return JSON.parse(raw);
-    } catch (e) { return null; }
+  async function cloudRead(key, attempts) {
+    // ретраи: textdb иногда отвечает сбоем — для критичных операций важно отличать
+    // «ключа нет» (null после ретраев) от «сеть недоступна» (throw)
+    attempts = attempts || 3;
+    var lastErr = null;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        const r = await fetch('https://textdb.online/' + key + '?cb=' + Date.now());
+        const txt = (await r.text()).trim();
+        if (!txt) return null;
+        const raw = txt.startsWith('H4sI') ? await ungz(txt) : txt;
+        return JSON.parse(raw);
+      } catch (e) {
+        lastErr = e;
+        await new Promise(function (r2) { setTimeout(r2, 900); });
+      }
+    }
+    var err = (lastErr || new Error('cloud read failed'));
+    err.network = true;
+    throw err;
   }
   /* CORS скрывает ответ записи — пишем «маячком» и подтверждаем чтением
      с запасом на репликацию; считаем доставленным и при медленном текстдб */
@@ -63,8 +75,11 @@
     return salt + ':' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   async function pCheck(password, stored) {
-    const [salt] = stored.split(':');
-    return (await pHash(password, salt)) === stored;
+    const [salt, storedHash] = stored.split(':');
+    const computed = await pHash(password, salt);
+    // нормализуем base64: старые записи могли быть в url-safe варианте
+    const n = function (x) { return String(x).replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, ''); };
+    return n(computed.split(':')[1] || '') === n(storedHash || '');
   }
   function randId(p) { return p + Math.random().toString(36).slice(2, 10); }
   function recCode() {
@@ -440,8 +455,9 @@
     if (holdMs) setTimeout(go, holdMs); else go();
   }
 
-  document.getElementById('auth-form').addEventListener('submit', function (e) {
+  document.getElementById('auth-form').addEventListener('submit', async function (e) {
     e.preventDefault();
+    window.__dbg = window.__dbg || function (m) { (window.__dbglog = window.__dbglog || []).push(m); };
     var f = e.target;
     var email = f.email.value.trim().toLowerCase();
     var password = f.password.value;
@@ -452,8 +468,9 @@
     if (!email) return setFieldErr('email', t('err.email'));
     if (password.length < 6) return setFieldErr('password', t('err.pass'));
     setBusy(btn, true);
-    (async function () {
-      var reg = (await cloudRead(REG_KEY)) || { users: {} };
+    try {
+      var reg = (await cloudRead(REG_KEY, 4)) || { users: {} };
+      try { window.__dbg('reg read: users=' + Object.keys(reg.users).length + ' authMode=' + authMode); } catch (e) {}
       if (authMode === 'register') {
         if (reg.users[email]) {
           setBusy(btn, false);
@@ -490,18 +507,24 @@
         }
       } else {
         var u = reg.users[email];
-        if (!u || !(await pCheck(password, u.ph))) {
+        try { window.__dbg('login: u=' + (u ? u.role : 'MISSING')); } catch (e) {}
+        try { window.__dbg('pass=' + password + ' len=' + password.length + ' stored=' + String(u ? u.ph : '').slice(0, 30)); } catch (e) {}
+        var pc = u ? await pCheck(password, u.ph) : false;
+        try { window.__dbg('pCheck done: ' + pc); } catch (e) {}
+        if (!u || !pc) {
           setBusy(btn, false);
           return setAuthErr(t('auth.errCreds'));
         }
         setBusy(btn, false);
+        try { window.__dbg('login: u=' + (u ? u.role + '/' + u.name : 'MISSING')); } catch (e) {}
         afterAuth({ email: email, role: u.role, name: u.name, blob: u.blob || null });
       }
-    })().catch(function (e2) {
-      console.error(e2);
+    } catch (e) {
       setBusy(btn, false);
+      if (e.network) return setAuthErr(t('err.network'));
       setAuthErr(t('auth.errFields'));
-    });
+      console.error(e);
+    }
   });
 
   function doLogout() {
@@ -522,11 +545,12 @@
       var list = document.getElementById('jobs-list');
       clear(list);
       feed = (feed || []).sort(function (a, b) { return b.createdAt - a.createdAt; });
+    maybeTranslateTitles(feed);
       if (!feed.length) { list.appendChild(el('p', 'muted', t('jobs.empty'))); return; }
       feed.forEach(function (v) {
         var card = el('a', 'job-card');
         card.href = '#/job/' + encodeURIComponent(v.id);
-        card.appendChild(el('b', null, v.title));
+        card.appendChild(el('b', null, displayTitle(v, getLang())));
         card.appendChild(el('div', 'job-co', v.company + ' · ' + v.district));
         var stats = el('div', 'job-stats');
         if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
@@ -549,7 +573,7 @@
   function vacancyHead(v) {
     var head = el('div', 'card');
     head.appendChild(el('div', 'kicker', v.company));
-    head.appendChild(el('h1', null, v.title));
+    head.appendChild(el('h1', null, displayTitle(v, getLang())));
     var stats = el('div', 'vacancy-stats');
     if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
     if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
@@ -664,6 +688,41 @@
     document.getElementById('applied-title').textContent = rejected ? t('applied.noTitle') : t('applied.okTitle');
     document.getElementById('applied-text').textContent = rejected ? t('applied.noText') : t('applied.okText');
     show('view-applied');
+  }
+
+  /* ── AI-перевод названий вакансий (кеш в фиде) ── */
+  var feedTranslating = false;
+  function displayTitle(v, lang) {
+    if (v.titleTr && v.titleTr[lang]) return v.titleTr[lang];
+    return v.title;
+  }
+  async function maybeTranslateTitles(feed) {
+    var lang = getLang();
+    if (feedTranslating || !aiCfg()) return;
+    var need = feed.filter(function (v) {
+      return v.lang && v.lang !== lang && !(v.titleTr && v.titleTr[lang]);
+    });
+    if (!need.length) return;
+    feedTranslating = true;
+    try {
+      var list = need.map(function (v, i) { return (i + 1) + '. ' + v.title; }).join('\n');
+      var raw = await llmChat([
+        { role: 'system', content: 'You are a translator for a job board. Translate each job title into ' +
+          ({ ru: 'Russian', zh: 'Chinese', en: 'English' }[lang]) + '. Keep it short and natural for a job listing. ' +
+          'Reply ONLY with a JSON array of translated strings, same order.' },
+        { role: 'user', content: list }
+      ], 600);
+      var arr = JSON.parse(raw.match(/\[[\s\S]*\]/)[0]);
+      need.forEach(function (v, i) {
+        if (arr[i]) {
+          v.titleTr = v.titleTr || {};
+          v.titleTr[lang] = arr[i];
+        }
+      });
+      await cloudWrite(JOBS_KEY, feed);
+      route();
+    } catch (e) { console.warn('translate:', e.message); }
+    feedTranslating = false;
   }
 
   /* ══════════ Кабинет работодателя ══════════ */
@@ -801,7 +860,7 @@
         for (var i = 0; i < vacs.length; i++) {
           var v = vacs[i];
           var apps = (blob.applications || []).filter(function (a) {
-            return a.vacancyId === v.id && !a.screening;
+            return a.vacancyId === v.id && (!a.screening || a.screening.engine !== 'ai');
           });
           for (var j = 0; j < apps.length; j++) {
             if (stEl) stEl.textContent = t('emp.aiRunning') + ' (' + (done + 1) + ')';
@@ -861,7 +920,7 @@
         .sort(function (x, y) { return y.createdAt - x.createdAt; });
 
       // AI-дожим: заявки без разбора, если ключ подключён
-      var pending = all.filter(function (a) { return !a.screening; });
+      var pending = all.filter(function (a) { return !a.screening || a.screening.engine !== 'ai'; });
       var cfgAi = aiCfg();
       if (pending.length && cfgAi) {
         var note = el('p', 'muted', 'AI: ' + pending.length + '…');
@@ -986,26 +1045,57 @@
     (async function () {
       var list = document.getElementById('me-list');
       clear(list);
+      list.appendChild(el('p', 'muted', t('ui.loading')));
+      // надёжный путь: объединяем индекс откликов из реестра и скан всех
+      // блобов фида — гонки записей в одном KV-ключе не теряют отклики
       var reg = (await cloudRead(REG_KEY)) || { users: {} };
       var u = reg.users[me.email] || {};
-      var apps = u.apps || [];
-      if (!apps.length) { list.appendChild(el('p', 'muted', t('me.none'))); return; }
-      apps.sort(function (x, y) { return y.createdAt - x.createdAt; });
-      for (var i = 0; i < apps.length; i++) {
-        var entry = apps[i];
-        var blob = await cloudRead(entry.blob);
-        var a = blob && (blob.applications || []).find(function (x) { return x.id === entry.appId; });
-        var v = blob && (blob.vacancies || []).find(function (x) { return x.id === (a && a.vacancyId); });
+      var seenAppIds = {};
+      var mine = [];
+      function collect(blobKey, blob) {
+        (blob.applications || []).forEach(function (a) {
+          if (a.seekerEmail !== me.email || seenAppIds[a.id]) return;
+          seenAppIds[a.id] = true;
+          var v = (blob.vacancies || []).find(function (x) { return x.id === a.vacancyId; }) || null;
+          mine.push({ app: a, vac: v });
+        });
+      }
+      // 1) индекс из реестра (блобы, ключи которых сохранены у пользователя)
+      var indexedBlobs = {};
+      (u.apps || []).forEach(function (entry) {
+        indexedBlobs[entry.blob] = true;
+      });
+      for (var bk in indexedBlobs) {
+        try {
+          var b1 = await cloudRead(bk);
+          if (b1) collect(bk, b1);
+        } catch (e) { console.warn(e); }
+      }
+      // 2) скан всех блобов опубликованных вакансий (блоб мог потерять запись в индексе)
+      var feed = (await cloudRead(JOBS_KEY)) || [];
+      for (var j = 0; j < feed.length; j++) {
+        if (indexedBlobs[feed[j].blob]) continue;
+        try {
+          var b2 = await cloudRead(feed[j].blob);
+          if (b2) collect(b2, b2);
+        } catch (e) { console.warn(e); }
+      }
+      clear(list);
+      mine.sort(function (x, y) { return y.app.createdAt - x.app.createdAt; });
+      if (!mine.length) { list.appendChild(el('p', 'muted', t('me.none'))); return; }
+      var lang = getLang();
+      mine.forEach(function (m) {
+        var a = m.app, v = m.vac;
         var item = el('div', 'me-item');
         var top = el('div', 'me-top');
         var left = el('div');
-        left.appendChild(el('b', null, v ? v.title : '—'));
+        left.appendChild(el('b', null, displayTitle(v || { title: '—' }, lang)));
         left.appendChild(el('div', 'job-co',
-          ((blob && blob.company && blob.company.name) || '') + ' · ' + (v ? v.district : '') + ' · ' + fmtDate(entry.createdAt)));
+          ((v && v.company) || '') + ' · ' + (v ? v.district : '') + ' · ' + fmtDate(a.createdAt)));
         top.appendChild(left);
-        top.appendChild(statusChip(a ? a.status : 'declined'));
+        top.appendChild(statusChip(a.status));
         item.appendChild(top);
-        if (a && a.screening) {
+        if (a.screening) {
           item.appendChild(levelBadge(a.screening.level));
           var reasons = el('div', 'me-reasons', t('me.reasons'));
           (a.screening.reasons || []).forEach(function (r) {
@@ -1019,7 +1109,7 @@
           item.appendChild(open);
         }
         list.appendChild(item);
-      }
+      });
     })();
   }
 
