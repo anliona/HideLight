@@ -800,7 +800,7 @@
       var cfgAi = aiCfg();
       st.textContent = cfgAi ? t('emp.aiReady') + ' · ' + cfgAi.model : t('emp.aiKeyMissing');
       st.className = cfgAi ? 'on' : 'off';
-      var pendingCount = (blob.applications || []).filter(function (a) { return !a.screening; }).length;
+      var pendingCount = (blob.applications || []).filter(function (a) { return !a.screening || a.screening.engine !== 'ai'; }).length;
       var pEl = document.getElementById('ai-pending');
       if (pEl) pEl.textContent = pendingCount ? t('emp.aiPending', { n: pendingCount }) : t('emp.aiNoPending');
       var runBtn = document.getElementById('btn-ai-run');
