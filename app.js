@@ -778,7 +778,7 @@
       var feed = (await cloudRead(JOBS_KEY)) || [];
       feed = feed.filter(function (x) { return x.id !== v.id; });
       feed.push({
-        id: v.id, blob: myBlobKey(), title: v.title, company: blob.company.name,
+        id: v.id, blob: myBlobKey(), title: v.title, company: (blob.company && blob.company.name) || me.name,
         companyDesc: blob.company.desc || '', companyCity: blob.company.city || '',
         district: v.district, salaryFrom: v.salaryFrom, cur: v.cur || 'RUB',
         schedule: v.schedule, reqLang: v.reqLang, description: v.description, createdAt: v.createdAt,
@@ -847,6 +847,14 @@
         var apps = (blob.applications || []).filter(function (a) { return a.vacancyId === v.id; });
         stats.appendChild(el('span', 'badge badge-gray', t('emp.applicants') + ': ' + apps.length));
         item.appendChild(stats);
+        var row = el('div', 'vacancy-actions');
+        var qrBtn = el('button', 'qr-btn-card', t('emp.qrBtn'));
+        qrBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          openQrModal(v);
+        });
+        row.appendChild(qrBtn);
+        item.appendChild(row);
         item.addEventListener('click', function () { location.hash = '#/v/' + encodeURIComponent(v.id); });
         list.appendChild(item);
       });
@@ -871,6 +879,84 @@
       setTimeout(function () { b.remove(); }, 2000);
     })();
   });
+
+  /* ── QR-код вакансии: модалка с кодом, ссылкой и скачиванием ── */
+  function qrSvgDataUrl(text) {
+    var qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    var svg = qr.createSvgTag({ cellSize: 6, margin: 2 });
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+  function openQrModal(v) {
+    var shareUrl = location.origin + location.pathname + '#/job/' + v.id;
+    var old = document.getElementById('qr-share-modal');
+    if (old) old.remove();
+    var overlay = el('div', 'qr-modal');
+    overlay.id = 'qr-share-modal';
+    var card = el('div', 'qr-modal-card');
+    var close = el('button', 'qr-modal-close', '×');
+    close.addEventListener('click', function () { overlay.remove(); });
+    card.appendChild(close);
+    card.appendChild(el('div', 'qr-title', v.title));
+    card.appendChild(el('div', 'qr-sub', (v.company || me.name || '') + ' · ' + (v.district || '')));
+    var body = el('div', 'qr-modal-body');
+    var imgBox = el('div', 'qr-img-box');
+    var img = el('img');
+    img.src = qrSvgDataUrl(shareUrl);
+    img.width = 148; img.height = 148;
+    img.alt = 'QR';
+    imgBox.appendChild(img);
+    body.appendChild(imgBox);
+    var side = el('div', 'qr-modal-side');
+    var linkLine = el('div', 'qr-link-line', shareUrl);
+    side.appendChild(linkLine);
+    var actions = el('div', 'qr-modal-actions');
+    var copyBtn = el('button', 'btn btn-primary btn-sm', t('qr.copyLink'));
+    copyBtn.addEventListener('click', function () {
+      function done() {
+        copyBtn.textContent = t('qr.copied');
+        setTimeout(function () { copyBtn.textContent = t('qr.copyLink'); }, 1800);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl).then(done, function () { fallbackCopy(shareUrl); done(); });
+      } else { fallbackCopy(shareUrl); done(); }
+    });
+    actions.appendChild(copyBtn);
+    var dl = el('button', 'btn btn-ghost btn-sm', t('qr.download'));
+    dl.addEventListener('click', function () {
+      var img2 = new Image();
+      img2.onload = function () {
+        var c = document.createElement('canvas');
+        var scale = 4;
+        c.width = 148 * scale; c.height = 148 * scale;
+        var ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img2, 0, 0, c.width, c.height);
+        var a = document.createElement('a');
+        a.download = 'QR-' + v.title.replace(/[^\w\u0400-\u04FF-]+/g, '_') + '.png';
+        a.href = c.toDataURL('image/png');
+        a.click();
+      };
+      img2.src = img.src;
+    });
+    actions.appendChild(dl);
+    side.appendChild(actions);
+    body.appendChild(side);
+    card.appendChild(body);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    ta.remove();
+  }
 
   /* ── Чат AI-скрининга (без ввода вопросов — только лента) ── */
   function aiChatBox() { return document.getElementById('ai-chat'); }

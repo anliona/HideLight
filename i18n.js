@@ -4,6 +4,12 @@
 
   var DICT = {
     ru: {
+      'qr.modalTitle': 'QR-код вакансии',
+      'qr.copyLink': 'Скопировать ссылку',
+      'qr.copied': 'Ссылка скопирована ✓',
+      'qr.download': 'Скачать QR (PNG)',
+      'qr.candidateNote': 'Наведите камеру телефона — откроется анкета вакансии',
+      'emp.qrBtn': 'QR-код',
       'ui.saving': 'Сохраняем в облаке…',
       'chat.userAsk': 'Проверь новые отклики',
       'chat.start': 'Начинаю AI-разбор новых откликов…',
@@ -94,6 +100,12 @@
       'emp.aiModel': 'Модель',
       'emp.connect': 'Подключить AI',
       'emp.delete': 'Удалить',
+      'qr.modalTitle': 'QR-код вакансии',
+      'qr.copyLink': 'Скопировать ссылку',
+      'qr.copied': 'Ссылка скопирована ✓',
+      'qr.download': 'Скачать QR (PNG)',
+      'qr.candidateNote': 'Наведите камеру телефона — откроется анкета вакансии',
+      'emp.qrBtn': 'QR-код',
       'emp.noApps': 'Откликов пока нет — поделитесь QR-кодом вакансии.',
       'jobs.title': 'Вакансии',
       'jobs.open': 'Подробнее',
@@ -260,6 +272,12 @@
     },
 
     en: {
+      'qr.modalTitle': 'Vacancy QR code',
+      'qr.copyLink': 'Copy link',
+      'qr.copied': 'Link copied ✓',
+      'qr.download': 'Download QR (PNG)',
+      'qr.candidateNote': 'Point a phone camera — the application form opens',
+      'emp.qrBtn': 'QR code',
       'ui.saving': 'Saving to the cloud…',
       'chat.userAsk': 'Screen the new applications',
       'chat.start': 'Starting the AI review of new applications…',
@@ -516,6 +534,12 @@
     },
 
     zh: {
+      'qr.modalTitle': '职位二维码',
+      'qr.copyLink': '复制链接',
+      'qr.copied': '链接已复制 ✓',
+      'qr.download': '下载二维码 (PNG)',
+      'qr.candidateNote': '用手机相机对准——即可打开职位申请表',
+      'emp.qrBtn': '二维码',
       'ui.saving': '正在保存到云端…',
       'chat.userAsk': '解析新申请',
       'chat.start': '开始 AI 解析新申请…',
