@@ -134,30 +134,42 @@
         languages: application.langs, about: application.about }) + '\n\n' +
       'TASKS:\n' +
       '1. detectedLang: "ru"|"zh"|"en" of the about text.\n' +
-      '2. aboutTranslated: translate about into ' + langNameI + '.\n' +
-      '3. languageOk: true/false against REQUIRED LANGUAGE (if any) + short languageReason in ' + langNameI + '.\n' +
-      '4. For EVERY screening rule: verdict with a short friendly reason in ' + langNameI +
-      ' (for bonus rules say it is a plus, not required).\n' +
+      '2. aboutTranslated: translate the about text into ALL THREE languages: {"ru":"...","zh":"...","en":"..."}.\n' +
+      '3. languageOk: true/false against REQUIRED LANGUAGE (if any).\n' +
+      '4. For EVERY screening rule: verdict pass true/false and a short friendly reason in ALL THREE languages: ' +
+      '{"ru":"...","zh":"...","en":"..."}. For bonus rules say it is a plus, not required.\n' +
       'Use only facts from the profile; unverifiable rules → pass=false and say what is worth clarifying on a call.\n' +
-      'RESPOND JSON only: {"detectedLang":"ru","aboutTranslated":"...","languageOk":true,"languageReason":"...","verdicts":[{"rule":"...","pass":true,"reason":"..."}]}';
+      'RESPOND JSON only: {"detectedLang":"ru","aboutTranslated":{"ru":"...","zh":"...","en":"..."},' +
+      '"languageOk":true,"languageReason":{"ru":"...","zh":"...","en":"..."},' +
+      '"verdicts":[{"rule":"<original rule>","pass":true,"reason":{"ru":"...","zh":"...","en":"..."}}]}';
     const raw = await llmChat([
       { role: 'system', content: sys },
       { role: 'user', content: user },
-    ], 1200);
+    ], 1400);
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) throw new Error('no JSON');
     const p = JSON.parse(m[0]);
-    const reasons = [];
-    if (vacancy.reqLang && vacancy.reqLang !== 'any') {
-      reasons.push({ s: p.languageOk ? 'ok' : 'bad', text: p.languageReason || 'language' });
+    function tri(x) {
+      if (x && typeof x === 'object') return { ru: x.ru || '', zh: x.zh || '', en: x.en || '' };
+      return { ru: x || '', zh: x || '', en: x || '' };
     }
-    (p.verdicts || []).forEach(v => reasons.push({ s: v.pass ? 'ok' : 'bad', text: v.rule + ' — ' + v.reason }));
+    var reasons = [];
+    if (vacancy.reqLang && vacancy.reqLang !== 'any') {
+      var lr = tri(p.languageReason);
+      reasons.push({ s: p.languageOk ? 'ok' : 'bad', ru: lr.ru, zh: lr.zh, en: lr.en });
+    }
+    (p.verdicts || []).forEach(function (v) {
+      var rr = tri(v.reason);
+      reasons.push({ s: v.pass ? 'ok' : 'bad', ru: rr.ru, zh: rr.zh, en: rr.en, rule: v.rule || '' });
+    });
     const okN = reasons.filter(r => r.s === 'ok').length;
     const badN = reasons.filter(r => r.s === 'bad').length;
     const score = (okN + badN) ? Math.round(okN / (okN + badN) * 100) : 50;
     const level = score >= 75 ? 'green' : score >= 50 ? 'amber' : 'red';
+    var at = p.aboutTranslated;
+    var atObj = (at && typeof at === 'object') ? { ru: at.ru || '', zh: at.zh || '', en: at.en || '' } : null;
     return { engine: 'ai', score, level, reasons,
-             aboutTranslated: p.aboutTranslated || null,
+             aboutTranslated: atObj,
              autoDeclined: level === 'red' && (okN + badN) >= 2 };
   }
 
@@ -1141,10 +1153,11 @@
     var okN = (a.screening.reasons || []).filter(function (r) { return r.s === 'ok'; }).length;
     var reqN = (a.screening.reasons || []).filter(function (r) { return r.s !== 'neutral'; }).length;
     if (reqN) reasons.appendChild(el('div', null, t('rules.matchLine', { ok: okN, all: reqN })));
+    var vLang = getLang();
     (a.screening.reasons || []).forEach(function (r) {
       var line = el('div', 'reason ' + (r.s === 'ok' ? 'ok' : r.s === 'bad' ? 'bad' : 'neutral'));
       line.appendChild(el('span', 'mark', r.s === 'ok' ? '✓' : r.s === 'bad' ? '✕' : '·'));
-      line.appendChild(el('span', null, r.text));
+      line.appendChild(el('span', null, reasonText(r, vLang)));
       reasons.appendChild(line);
     });
     card.appendChild(reasons);
