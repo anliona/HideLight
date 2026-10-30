@@ -590,10 +590,7 @@
     head.appendChild(el('div', 'kicker', v.company));
     head.appendChild(el('h1', null, displayTitle(v, getLang())));
     var stats = el('div', 'vacancy-stats');
-    if (v.salaryFrom) {
-      var cs = CUR_SYM[v.cur || 'RUB'];
-      stats.appendChild(el('span', 'chip', t('misc.from', { sum: fmtMoney(v.salaryFrom) }) + ' ' + cs));
-    }
+    if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.from', { sum: money(v.salaryFrom, v.cur) })));
     if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
     stats.appendChild(el('span', 'chip', v.district));
     head.appendChild(stats);
