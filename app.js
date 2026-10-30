@@ -141,7 +141,12 @@
       'APPLICANT PROFILE (JSON):\n' +
       JSON.stringify({ name: application.name, yearsExperience: application.years,
         district: application.district, expectedSalary: application.salary,
-        languages: application.langs, about: application.about }) + '\n\n' +
+        languages: application.langs, about: application.about,
+        voiceInterview: (application.interview && application.interview.items || [])
+          .filter(function (x) { return x.a; })
+          .map(function (x, i) { return { q: x.q, a: x.a }; }) }) + '\n\n' +
+      (application.interview ? 'A voice interview transcript is included in the profile (voiceInterview). ' +
+        'Base your verdicts on the whole picture: the written profile AND the interview answers.\n' : '') +
       'TASKS:\n' +
       '1. detectedLang: "ru"|"zh"|"en" of the about text.\n' +
       '2. aboutTranslated: translate the about text into ALL THREE languages: {"ru":"...","zh":"...","en":"..."}.\n' +
@@ -667,6 +672,9 @@
       form.dataset.vacancyId = id;
       form.name.value = me.name || '';
       document.getElementById('lang-err').hidden = true;
+      window.__hl_interview = null;
+      var vs = document.getElementById('voice-status');
+      if (vs) { vs.hidden = true; vs.innerHTML = ''; }
       show('view-apply');
     });
   }
@@ -702,6 +710,7 @@
         salCur: f.salCur.value,
         about: f.about.value.trim(), langs: langs,
         createdAt: Date.now(), status: 'new', screening: null,
+        interview: window.__hl_interview || null,
       };
       application.screening = rulesScreen(v, application);
       application.status = application.screening.autoDeclined ? 'declined' : 'new';
@@ -724,6 +733,316 @@
       location.hash = '#/applied';
     })().catch(function (e2) { console.error(e2); setBusy(btn, false); alert(t('auth.errFields')); });
   });
+
+  /* ══════════ Голосовое AI-интервью соискателя ══════════
+     AI озвучивает вопрос (speechSynthesis), ответ — push-to-talk:
+     зажал кнопку → идёт запись/распознавание, отпустил → стоп.
+     Расшифровку анализирует DeepSeek: триязычное резюме + вердикт.
+     Если распознавания нет — печатный режим (тот же анализ). */
+  var VOICE_QS = {
+    ru: [
+      'Расскажите коротко о вашем опыте работы в этой сфере.',
+      'Какой график работы вам удобен? Есть ли ограничения по сменам или времени?',
+      'Какие у вас сильные стороны и что вы умеете лучше всего?',
+      'Почему вам интересна эта работа?',
+    ],
+    zh: [
+      '请简单介绍一下您在这一行业的工作经验。',
+      '什么样的工作时间安排对您合适？对班次或时间有限制吗？',
+      '您的主要优势是什么？您最擅长什么？',
+      '为什么这份工作让您感兴趣？',
+    ],
+    en: [
+      'Tell us briefly about your experience in this field.',
+      'What work schedule suits you? Any limits on shifts or hours?',
+      'What are your strengths and what are you best at?',
+      'Why does this job interest you?',
+    ],
+  };
+  var REC_LANG = { ru: 'ru-RU', zh: 'zh-CN', en: 'en-US' };
+
+  function voiceQS() { return VOICE_QS[getLang()] || VOICE_QS.ru; }
+
+  function voicePickLang() {
+    try {
+      var want = { ru: 'ru', zh: 'zh', en: 'en' }[getLang()] || 'ru';
+      var vs = speechSynthesis.getVoices() || [];
+      for (var i = 0; i < vs.length; i++) if (vs[i].lang && vs[i].lang.toLowerCase().indexOf(want) === 0) return vs[i];
+    } catch (e) {}
+    return null;
+  }
+  function voiceSpeak(text) {
+    try {
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = REC_LANG[getLang()] || 'ru-RU';
+      var v = voicePickLang();
+      if (v) u.voice = v;
+      u.rate = 1;
+      speechSynthesis.speak(u);
+    } catch (e) { console.warn('tts', e); }
+  }
+  function voiceStop() { try { speechSynthesis.cancel(); } catch (e) {} }
+
+  function interviewAnalyze(items, lang) {
+    var spoken = items.filter(function (x) { return x.a; });
+    if (!spoken.length || !aiCfg().key) {
+      return Promise.resolve({ engine: 'local', lang: lang, items: items,
+        summary: null, verdict: null });
+    }
+    var sys = 'You are a concise, friendly hiring assistant. Answer ONLY with a valid JSON object, no markdown.';
+    var user =
+      'An AI voice interview was conducted with a job applicant. Questions were asked aloud; answers are transcribed below.\n' +
+      'TRANSCRIPT:\n' +
+      spoken.map(function (x, i) { return (i + 1) + '. Q: ' + x.q + '\n   A: ' + x.a; }).join('\n') + '\n\n' +
+      'TASKS:\n' +
+      '1. summary: 2-3 friendly sentences about the candidate IN ALL THREE languages {"ru","zh","en"} — experience, strengths, anything notable or concerning. Base it ONLY on what was actually said.\n' +
+      '2. verdict: fit score 0-100, level "green"|"amber"|"red" (green=strong, amber=worth a call, red=weak fit), and 2-4 short bullet reasons in ALL THREE languages.\n' +
+      'RESPOND JSON only: {"summary":{"ru":"...","zh":"...","en":"..."},"verdict":{"score":75,"level":"amber","reasons":[{"s":"ok","ru":"...","zh":"...","en":"..."}]}}';
+    return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], 1100)
+      .then(function (raw) {
+        var m = raw.match(/\{[\s\S]*\}/);
+        if (!m) throw new Error('no JSON');
+        var p = JSON.parse(m[0]);
+        function tri(x) { return x && typeof x === 'object' ? { ru: x.ru || '', zh: x.zh || '', en: x.en || '' } : { ru: x || '', zh: x || '', en: x || '' }; }
+        var sm = tri(p.summary);
+        var vd = p.verdict && typeof p.verdict === 'object' ? {
+          score: parseInt(p.verdict.score, 10) || 0,
+          level: ['green', 'amber', 'red'].indexOf(p.verdict.level) >= 0 ? p.verdict.level : 'amber',
+          reasons: (p.verdict.reasons || []).map(function (r) {
+            var t3 = tri(r);
+            return { s: r.s === 'ok' ? 'ok' : 'bad', ru: t3.ru, zh: t3.zh, en: t3.en };
+          }),
+        } : null;
+        return { engine: 'ai', lang: lang, items: items, summary: sm, verdict: vd };
+      })
+      .catch(function (e) {
+        console.warn('interview analyze', e);
+        return { engine: 'local', lang: lang, items: items, summary: null, verdict: null, aiError: e.status || null };
+      });
+  }
+
+  function openVoiceInterview() {
+    var old = document.getElementById('voice-modal');
+    if (old) old.remove();
+    voiceStop();
+    var qs = voiceQS();
+    var items = qs.map(function (q) { return { q: q, a: '' }; });
+    var idx = 0;
+    var done = false;
+    var started = false;
+    var recInst = null, recActive = false, finalText = '', interimText = '', committed = false;
+    var canRec = !!(window.SpeechRecognition || window.webkitSpeechRecognition) && !!window.speechSynthesis;
+
+    var overlay = el('div', 'qr-modal');
+    overlay.id = 'voice-modal';
+    var card = el('div', 'qr-modal-card voice-modal-card');
+    var close = el('button', 'qr-modal-close', '×');
+    close.addEventListener('click', closeModal);
+    card.appendChild(close);
+    var body = el('div', 'voice-body');
+    card.appendChild(body);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    function closeModal() {
+      done = true;
+      stopRec();
+      voiceStop();
+      overlay.remove();
+    }
+
+    function draw() {
+      clear(body);
+      if (idx === 0 && !items[0].a && finalText === '' && !started) return drawIntro();
+      if (idx >= qs.length) return drawProcessing();
+      drawQuestion();
+    }
+
+    function drawIntro() {
+      body.appendChild(el('div', 'qr-title', t('voice.modalTitle')));
+      body.appendChild(el('p', 'voice-intro', t('voice.intro')));
+      var b = el('button', 'btn btn-primary', t('voice.start'));
+      b.addEventListener('click', function () {
+        started = true;
+        voiceSpeak(qs[idx]);
+        draw();
+      });
+      var row = el('div', 'voice-row');
+      row.appendChild(b);
+      body.appendChild(row);
+    }
+
+    function drawQuestion() {
+      body.appendChild(el('div', 'voice-qnum', t('voice.qOf', { n: idx + 1, all: qs.length })));
+      var qrow = el('div', 'voice-row');
+      qrow.style.alignItems = 'center';
+      qrow.appendChild(Object.assign(el('div', 'voice-qtext', qs[idx]), { style: 'flex:1;margin:0;' }));
+      var rep = el('button', 'btn btn-ghost btn-sm', t('voice.repeat'));
+      rep.addEventListener('click', function () { voiceSpeak(qs[idx]); });
+      qrow.appendChild(rep);
+      body.appendChild(qrow);
+
+      var answer = items[idx].a;
+      if (!committed && answer) committed = true;
+      var nextB = null;
+
+      if (canRec) {
+        var hold = el('button', 'voice-hold');
+        hold.type = 'button';
+        hold.appendChild(el('span', 'dot'));
+        var holdLbl = el('span', null, t('voice.hold'));
+        hold.appendChild(holdLbl);
+        var live = el('div', 'voice-live');
+        body.appendChild(hold);
+        body.appendChild(live);
+
+        hold.addEventListener('pointerdown', function (ev) {
+          ev.preventDefault();
+          if (recActive) return;
+          startRec(hold, live, holdLbl);
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evn) {
+          hold.addEventListener(evn, function () { stopRec(hold, live, holdLbl); });
+        });
+        // страховка: палец «съехал» за пределы кнопки
+        hold.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      } else {
+        body.appendChild(el('p', 'voice-live', t('voice.typeNote')));
+        var ta = el('textarea', 'voice-typed');
+        ta.value = items[idx].a || '';
+        ta.addEventListener('input', function () {
+          items[idx].a = ta.value.trim();
+          if (nextB) nextB.disabled = !(items[idx].a && items[idx].a.length > 1);
+        });
+        body.appendChild(ta);
+      }
+
+      var row = el('div', 'voice-row');
+      if (committed && items[idx].a) {
+        var ansBox = el('div', 'voice-ans');
+        ansBox.appendChild(el('b', null, t('voice.said')));
+        ansBox.appendChild(el('div', 'qa-a', items[idx].a));
+        body.appendChild(ansBox);
+        var redo = el('button', 'btn btn-ghost btn-sm', t('voice.rerecord'));
+        redo.addEventListener('click', function () {
+          committed = false; finalText = ''; interimText = ''; items[idx].a = '';
+          draw();
+        });
+        row.appendChild(redo);
+      }
+      var skip = el('button', 'btn btn-ghost btn-sm', t('voice.skip'));
+      skip.addEventListener('click', function () { items[idx].a = ''; next(); });
+      nextB = el('button', 'btn btn-primary btn-sm', t('voice.next'));
+      nextB.disabled = !(items[idx].a && items[idx].a.length > 1);
+      nextB.addEventListener('click', next);
+      row.appendChild(skip);
+      row.appendChild(nextB);
+      body.appendChild(row);
+    }
+
+    function startRec(hold, live, lbl) {
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      finalText = ''; interimText = '';
+      recInst = new SR();
+      recInst.lang = REC_LANG[getLang()] || 'ru-RU';
+      recInst.interimResults = true;
+      recInst.continuous = true;
+      recInst.onresult = function (ev) {
+        interimText = '';
+        for (var i = ev.resultIndex; i < ev.results.length; i++) {
+          if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript + ' ';
+          else interimText += ev.results[i][0].transcript;
+        }
+        if (live) live.textContent = (finalText + ' ' + interimText).trim();
+      };
+      recInst.onerror = function (ev) {
+        console.warn('rec', ev.error);
+        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+          canRec = false; // микроразрешение нет — печатный режим
+          stopRec(hold, live, lbl);
+          draw();
+        }
+      };
+      try { recInst.start(); recActive = true; } catch (e) { recActive = false; }
+      if (hold) hold.classList.add('rec');
+      if (lbl) lbl.textContent = t('voice.recording');
+    }
+
+    function stopRec(hold, live, lbl) {
+      if (!recActive) return;
+      recActive = false;
+      try { recInst && recInst.stop(); } catch (e) {}
+      if (hold) hold.classList.remove('rec');
+      if (lbl) lbl.textContent = t('voice.hold');
+      // финальные результаты распознавания приходят с задержкой — короткая пауза
+      var myIdx = idx;
+      setTimeout(function () {
+        if (done || myIdx !== idx || committed) return;
+        var a = (finalText || interimText || '').trim();
+        if (a) { items[myIdx].a = a; committed = true; draw(); }
+      }, 700);
+    }
+
+    function next() {
+      stopRec();
+      committed = false; finalText = ''; interimText = '';
+      idx++;
+      if (idx >= qs.length) return drawProcessing();
+      voiceSpeak(qs[idx]);
+      draw();
+    }
+
+    function drawProcessing() {
+      clear(body);
+      body.appendChild(el('div', 'voice-qnum', t('voice.processing')));
+      var sp = el('div', 'voice-processing', '⏳');
+      sp.style.fontSize = '34px';
+      body.appendChild(sp);
+      interviewAnalyze(items, getLang()).then(function (res) {
+        if (done) return;
+        window.__hl_interview = res;
+        updateVoiceStatus();
+        prefillAbout(res);
+        drawDone(res);
+      });
+    }
+
+    function drawDone(res) {
+      clear(body);
+      body.appendChild(el('div', 'qr-title', t('voice.doneTitle')));
+      body.appendChild(el('p', 'voice-intro', t('voice.doneText')));
+      var b = el('button', 'btn btn-primary', t('voice.close'));
+      b.addEventListener('click', closeModal);
+      var row = el('div', 'voice-row');
+      row.appendChild(b);
+      body.appendChild(row);
+    }
+
+    draw();
+  }
+
+  function updateVoiceStatus() {
+    var vs = document.getElementById('voice-status');
+    if (!vs) return;
+    clear(vs);
+    vs.hidden = false;
+    vs.appendChild(el('span', null, t('voice.doneBadge')));
+    var again = el('a', null, t('voice.again'));
+    again.addEventListener('click', function (e) { e.preventDefault(); openVoiceInterview(); });
+    vs.appendChild(again);
+  }
+
+  function prefillAbout(res) {
+    var form = document.getElementById('apply-form');
+    if (!form || !form.about) return;
+    if (form.about.value.trim()) return; // рукописный текст не трогаем
+    var text = (res.items || []).filter(function (x) { return x.a; })
+      .map(function (x) { return x.a; }).join(' ').slice(0, 700);
+    if (text) form.about.value = text;
+  }
+
+  document.getElementById('voice-start').addEventListener('click', openVoiceInterview);
 
   function renderApplied() {
     var last = null;
@@ -1162,6 +1481,45 @@
       card.appendChild(det);
     } else {
       card.appendChild(el('div', 'applicant-about', '\u00AB' + a.about + '\u00BB'));
+    }
+
+    // голосовое AI-интервью: резюме + вердикт + расшифровка
+    if (a.interview) {
+      var iv = el('div', 'interview-block');
+      var ivh = el('div', 'interview-head', '🎙 ' + t('card.interview'));
+      if (a.interview.verdict) {
+        ivh.appendChild(levelBadge(a.interview.verdict.level));
+        ivh.appendChild(el('span', 'muted', (a.interview.verdict.score || 0) + '%'));
+      }
+      iv.appendChild(ivh);
+      var ivLang = getLang();
+      if (a.interview.summary) {
+        var sm = a.interview.summary;
+        iv.appendChild(el('div', 'interview-summary', sm[ivLang] || sm.ru || sm.en || ''));
+      } else if (!a.interview.verdict) {
+        iv.appendChild(el('div', 'interview-summary muted', t('card.noVerdict')));
+      }
+      var ivr = el('div', 'reasons');
+      ((a.interview.verdict || {}).reasons || []).forEach(function (r) {
+        var line = el('div', 'reason ' + (r.s === 'ok' ? 'ok' : 'bad'));
+        line.appendChild(el('span', 'mark', r.s === 'ok' ? '✓' : '✕'));
+        line.appendChild(el('span', null, reasonText(r, ivLang)));
+        ivr.appendChild(line);
+      });
+      if (ivr.children.length) iv.appendChild(ivr);
+      var spoken = (a.interview.items || []).filter(function (x) { return x.a; });
+      if (spoken.length) {
+        var det = document.createElement('details');
+        det.appendChild(el('summary', null, t('voice.transcript')));
+        spoken.forEach(function (x) {
+          var qa = el('div', 'qa');
+          qa.appendChild(el('b', null, x.q));
+          qa.appendChild(el('div', 'qa-a', '«' + x.a + '»'));
+          det.appendChild(qa);
+        });
+        iv.appendChild(det);
+      }
+      card.appendChild(iv);
     }
 
     var reasons = el('div', 'reasons');

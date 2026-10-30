@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HireLight</title>
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
 <div class="page-frame">
@@ -250,6 +250,17 @@
       <label><span data-i18n="apply.about"></span>
         <textarea name="about" rows="4" required data-i18n-ph="ph.apply.about"></textarea>
       </label>
+      <div class="voice-card" id="voice-card">
+        <div class="voice-head">
+          <span class="voice-ico">🎙</span>
+          <div>
+            <b data-i18n="voice.cardTitle"></b>
+            <p data-i18n="voice.cardText"></p>
+          </div>
+        </div>
+        <div id="voice-status" class="voice-status" hidden></div>
+        <button type="button" id="voice-start" class="btn btn-ghost btn-sm">🎙 <span data-i18n="voice.cardBtn"></span></button>
+      </div>
       <div class="field">
         <span class="lbl" data-i18n="apply.myLang"></span>
         <div class="lang-checks" id="lang-checks">
@@ -330,47 +341,6 @@
     <div id="job-cta"></div>
   </section>
 
-  <!-- АНКЕТА (авторизованный соискатель) -->
-  <section class="view narrow" id="view-apply">
-    <div id="apply-vacancy"></div>
-    <form id="apply-form" class="card form" novalidate>
-      <h2 data-i18n="apply.h2"></h2>
-      <div class="form-row">
-        <label><span data-i18n="apply.name"></span>
-          <input type="text" name="name" required>
-        </label>
-        <label><span data-i18n="apply.phone"></span>
-          <input type="tel" name="phone" required>
-        </label>
-      </div>
-      <div class="form-row">
-        <label><span data-i18n="apply.years"></span>
-          <input type="number" name="years" min="0" max="60" step="1" placeholder="3">
-        </label>
-        <label><span data-i18n="apply.salary"></span>
-          <input type="number" name="salary" min="0" step="1000" placeholder="65000">
-        </label>
-      </div>
-      <label><span data-i18n="apply.district"></span>
-        <input type="text" name="district">
-      </label>
-      <label><span data-i18n="apply.about"></span>
-        <textarea name="about" rows="4" required></textarea>
-      </label>
-      <div class="field">
-        <span class="lbl" data-i18n="apply.myLang"></span>
-        <div class="lang-checks" id="lang-checks">
-          <label class="check"><input type="checkbox" name="langs" value="ru"><span data-i18n="langOpt.ru"></span></label>
-          <label class="check"><input type="checkbox" name="langs" value="zh"><span data-i18n="langOpt.zh"></span></label>
-          <label class="check"><input type="checkbox" name="langs" value="en"><span data-i18n="langOpt.en"></span></label>
-        </div>
-        <div class="field-err" id="lang-err" hidden data-i18n="apply.langErr"></div>
-      </div>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary" data-i18n="apply.submit"></button>
-      </div>
-    </form>
-  </section>
 
   <!-- ОТКЛИК ОТПРАВЛЕН -->
   <section class="view narrow" id="view-applied">
@@ -495,8 +465,8 @@
 </div>
 
 <script src="qrcode.js"></script>
-<script src="i18n.js?v=15"></script>
-<script src="config.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="i18n.js?v=16"></script>
+<script src="config.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

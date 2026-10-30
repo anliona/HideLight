@@ -805,3 +805,40 @@ input.has-err, textarea.has-err, select.has-err { border-color: var(--red) !impo
 
 /* ═══ Действия на карточке вакансии (QR) ═══ */
 .vacancy-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* ══════════ Голосовое AI-интервью ══════════ */
+.voice-card { border: 1px dashed var(--line); border-radius: 16px; padding: 14px; margin: 4px 0 14px; background: var(--bg); }
+.voice-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+.voice-head .voice-ico { font-size: 26px; line-height: 1; }
+.voice-head b { display: block; font-size: 15px; margin-bottom: 2px; }
+.voice-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.voice-status { background: var(--green-bg, #e8f7ee); color: #0b7a3b; border-radius: 10px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.voice-status a { cursor: pointer; }
+
+.voice-qnum { color: var(--muted); font-size: 13px; margin-bottom: 6px; letter-spacing: .02em; }
+.voice-qtext { font-size: 18px; font-weight: 700; line-height: 1.35; margin-bottom: 14px; }
+.voice-hold {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: 100%; padding: 18px 12px; border-radius: 16px; border: 2px solid var(--line);
+  background: var(--white); cursor: pointer; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  font: inherit; font-weight: 700; font-size: 15px;
+}
+.voice-hold:active { transform: scale(.99); }
+.voice-hold.rec { border-color: var(--red, #d64545); background: #fff3f3; color: var(--red, #d64545); }
+.voice-hold .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--red, #d64545); }
+.voice-hold.rec .dot { animation: hl-pulse 1s infinite; }
+@keyframes hl-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(1.25); } }
+.voice-live { min-height: 20px; font-size: 14px; color: var(--muted); font-style: italic; margin: 10px 0; }
+.voice-ans { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin: 10px 0; }
+.voice-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.voice-typed { width: 100%; min-height: 84px; border: 1px solid var(--line); border-radius: 12px; padding: 10px; font: inherit; font-size: 14px; margin: 10px 0; }
+
+.interview-block { border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin: 12px 0 0; background: var(--bg); }
+.interview-head { font-weight: 800; font-size: 14px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.interview-block .interview-summary { font-size: 14px; line-height: 1.5; margin: 8px 0; }
+.interview-block details { margin-top: 8px; }
+.interview-block details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.interview-block .qa { margin: 8px 0 0; font-size: 13px; line-height: 1.5; }
+.interview-block .qa b { display: block; }
+.interview-block .qa .qa-a { color: var(--muted); white-space: pre-wrap; }
