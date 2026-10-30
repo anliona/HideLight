@@ -249,6 +249,18 @@
   function fmtMoney(n) {
     try { return Number(n).toLocaleString(window.tLocale()); } catch (e) { return String(n); }
   }
+  var CUR_SYM = { RUB: '₽', USD: '$', EUR: '€', CNY: '¥' };
+  function fmtMoney(n) {
+    try { return Number(n).toLocaleString(window.tLocale()); } catch (e) { return String(n); }
+  }
+  function money(amount, cur) {
+    cur = cur || 'RUB';
+    var sym = CUR_SYM[cur] || '';
+    var num = fmtMoney(amount);
+    if (cur === 'RUB') return num + ' ' + sym;
+    if (cur === 'CNY') return sym + num;
+    return sym + num;
+  }
   function fmtDate(ts) {
     var d = new Date(ts);
     try {
@@ -575,7 +587,10 @@
     head.appendChild(el('div', 'kicker', v.company));
     head.appendChild(el('h1', null, displayTitle(v, getLang())));
     var stats = el('div', 'vacancy-stats');
-    if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
+    if (v.salaryFrom) {
+      var cs = CUR_SYM[v.cur || 'RUB'];
+      stats.appendChild(el('span', 'chip', t('misc.from', { sum: fmtMoney(v.salaryFrom) }) + ' ' + cs));
+    }
     if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
     stats.appendChild(el('span', 'chip', v.district));
     head.appendChild(stats);
@@ -656,6 +671,7 @@
         years: parseInt(f.years.value, 10) || 0,
         district: f.district.value.trim(),
         salary: parseInt(f.salary.value, 10) || null,
+        salCur: f.salCur.value,
         about: f.about.value.trim(), langs: langs,
         createdAt: Date.now(), status: 'new', screening: null,
       };
@@ -805,6 +821,18 @@
       if (pEl) pEl.textContent = pendingCount ? t('emp.aiPending', { n: pendingCount }) : t('emp.aiNoPending');
       var runBtn = document.getElementById('btn-ai-run');
       if (runBtn) runBtn.disabled = !cfgAi || !pendingCount;
+      var chat = document.getElementById('ai-chat');
+      if (chat) {
+        clear(chat);
+        var screenedApps = (blob.applications || []).filter(function (a) { return a.screening; })
+          .sort(function (x, y) { return y.createdAt - x.createdAt; }).slice(0, 8);
+        if (screenedApps.length) {
+          chat.hidden = false;
+          screenedApps.forEach(function (a) {
+            aiChatAdd('bot', a.name, (a.screening.score || 0) + '% · ' + t('level.' + a.screening.level));
+          });
+        }
+      }
       var list = document.getElementById('emp-vacs');
       clear(list);
       var vacs = (blob.vacancies || []).slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
@@ -842,6 +870,26 @@
       setTimeout(function () { b.remove(); }, 2000);
     })();
   });
+
+  /* ── Чат AI-скрининга (без ввода вопросов — только лента) ── */
+  function aiChatBox() { return document.getElementById('ai-chat'); }
+  function aiChatAdd(kind, who, text) {
+    var box = aiChatBox();
+    if (!box) return;
+    box.hidden = false;
+    var m = el('div', 'ai-msg ' + kind);
+    if (who) m.appendChild(el('span', 'who', who));
+    m.appendChild(el('div', null, text));
+    box.appendChild(m);
+    box.scrollTop = box.scrollHeight;
+    return m;
+  }
+  function aiChatReset() {
+    var box = aiChatBox();
+    if (!box) return;
+    clear(box);
+    box.hidden = false;
+  }
 
   /* ══════════ Кнопка AI-скрининга ══════════
      Ключ DeepSeek принадлежит платформе; работодатель лишь запускает разбор
@@ -1095,14 +1143,6 @@
         top.appendChild(left);
         top.appendChild(statusChip(a.status));
         item.appendChild(top);
-        if (a.screening) {
-          item.appendChild(levelBadge(a.screening.level));
-          var reasons = el('div', 'me-reasons', t('me.reasons'));
-          (a.screening.reasons || []).forEach(function (r) {
-            reasons.appendChild(el('div', null, (r.s === 'ok' ? '✓ ' : r.s === 'bad' ? '✕ ' : '· ') + r.text));
-          });
-          item.appendChild(reasons);
-        }
         if (v) {
           var open = el('a', 'job-go', t('jobs.open') + ' →');
           open.href = '#/job/' + encodeURIComponent(v.id);

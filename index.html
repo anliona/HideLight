@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HireLight</title>
-<link rel="stylesheet" href="app.css?v=10">
+<link rel="stylesheet" href="app.css?v=11">
 </head>
 <body>
 <div class="page-frame">
@@ -164,6 +164,14 @@
         <label><span data-i18n="create.salary"></span>
           <input type="number" name="salaryFrom" min="0" step="1000" placeholder="60000">
         </label>
+        <label><span data-i18n="create.cur"></span>
+          <select name="cur">
+            <option value="RUB" data-i18n="cur.RUB" selected></option>
+            <option value="USD" data-i18n="cur.USD"></option>
+            <option value="EUR" data-i18n="cur.EUR"></option>
+            <option value="CNY" data-i18n="cur.CNY"></option>
+          </select>
+        </label>
         <label><span data-i18n="create.schedule"></span>
           <input type="text" name="schedule" data-i18n-ph="ph.create.schedule">
         </label>
@@ -226,6 +234,14 @@
         </label>
         <label><span data-i18n="apply.salary"></span>
           <input type="number" name="salary" min="0" step="1000" placeholder="65000">
+        </label>
+        <label><span data-i18n="apply.salCur"></span>
+          <select name="salCur">
+            <option value="RUB" data-i18n="cur.RUB" selected></option>
+            <option value="USD" data-i18n="cur.USD"></option>
+            <option value="EUR" data-i18n="cur.EUR"></option>
+            <option value="CNY" data-i18n="cur.CNY"></option>
+          </select>
         </label>
       </div>
       <label><span data-i18n="apply.district"></span>
@@ -424,6 +440,7 @@
         <div class="form-actions">
           <button type="button" class="btn btn-primary btn-sm" id="btn-ai-run" data-i18n="emp.aiRun"></button>
         </div>
+        <div class="ai-chat" id="ai-chat" hidden></div>
       </div>
     </div>
     <div class="dash-head" style="margin-top:30px">
@@ -478,8 +495,8 @@
 </div>
 
 <script src="qrcode.js"></script>
-<script src="i18n.js?v=10"></script>
-<script src="config.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="i18n.js?v=11"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
