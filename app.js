@@ -63,6 +63,16 @@
     }
     return true; // записывающий GET отправлен; чтение подтянется
   }
+  /* чтение-изменение-запись общего ключа. При сетевом сбое чтения НЕ пишем
+     вслепую: иначе одно пользовательское действие могло бы затереть весь
+     реестр значением, собранным из отката. */
+  async function cloudMutate(key, fn, fb) {
+    var cur = await cloudRead(key);
+    if (!cur) cur = fb ? JSON.parse(JSON.stringify(fb)) : {};
+    var next = fn(cur) || cur;
+    await cloudWrite(key, next);
+    return next;
+  }
 
   /* ══════════ Пароли и восстановление ══════════ */
   async function pHash(password, salt) {
@@ -206,13 +216,14 @@
     return hay.some(t2 => t2 === kw || (t2.length >= 5 && kw.length >= 5 && t2.slice(0, 5) === kp) || (t2.length < 5 && kw.length < 5 && t2 === kw));
   }
   function rulesScreen(vacancy, application) {
-    const T = REASONS_T[vacancy.lang] || REASONS_T.ru;
+    // причины триязычны {s,ru,zh,en} — язык выбирается при показе (reasonText)
     const reasons = [];
     let ok = 0, bad = 0;
+    const push = (s, mk) => reasons.push({ s, ru: mk(REASONS_T.ru), zh: mk(REASONS_T.zh), en: mk(REASONS_T.en) });
     if (vacancy.reqLang && vacancy.reqLang !== 'any') {
       const knows = (application.langs || []).includes(vacancy.reqLang);
       const lname = langName(vacancy.reqLang);
-      reasons.push({ s: knows ? 'ok' : 'bad', text: knows ? T.langOk(lname) : T.langBad(lname) });
+      push(knows ? 'ok' : 'bad', T => knows ? T.langOk(lname) : T.langBad(lname));
       knows ? ok++ : bad++;
     }
     const hay = tokens(application.about + ' ' + application.district);
@@ -222,24 +233,24 @@
       let m = rl.match(/от\s+(\d+)\s*(лет|года|год)/);
       if (m) {
         const min = +m[1], y = application.years || 0;
-        if (y >= min) { reasons.push({ s: 'ok', text: T.yearsOk(T.yearsWord(y)) }); ok++; }
-        else if (soft) { reasons.push({ s: 'neutral', text: T.bonusNeutral(rule) }); }
-        else { reasons.push({ s: 'bad', text: T.yearsLow(T.yearsWord(y), min) }); bad++; }
+        if (y >= min) { push('ok', T => T.yearsOk(T.yearsWord(y))); ok++; }
+        else if (soft) { push('neutral', T => T.bonusNeutral(rule)); }
+        else { push('bad', T => T.yearsLow(T.yearsWord(y), min)); bad++; }
         return;
       }
       m = rl.match(/до\s+(\d+)\s*(лет|года|год)/);
       if (m) {
         const max = +m[1], y = application.years || 0;
-        if (y <= max) { reasons.push({ s: 'ok', text: T.yearsOk(T.yearsWord(y)) }); ok++; }
-        else { reasons.push({ s: 'bad', text: T.yearsWord(y) + ' > ' + max }); bad++; }
+        if (y <= max) { push('ok', T => T.yearsOk(T.yearsWord(y))); ok++; }
+        else { push('bad', T => T.yearsWord(y) + ' > ' + max); bad++; }
         return;
       }
       const kws = tokens(rule).filter(w => w.length >= 4 && !STOP.has(w));
-      if (!kws.length) { reasons.push({ s: 'neutral', text: rule }); return; }
+      if (!kws.length) { push('neutral', () => rule); return; }
       const hit = kws.some(kw => kwMatch(kw, hay));
-      if (hit) { reasons.push({ s: 'ok', text: T.found(rule) }); ok++; }
-      else if (soft) { reasons.push({ s: 'neutral', text: T.bonusNeutral(rule) }); }
-      else { reasons.push({ s: 'bad', text: T.missing(rule) }); bad++; }
+      if (hit) { push('ok', T => T.found(rule)); ok++; }
+      else if (soft) { push('neutral', T => T.bonusNeutral(rule)); }
+      else { push('bad', T => T.missing(rule)); bad++; }
     });
     const score = (ok + bad) ? Math.round(ok / (ok + bad) * 100) : 50;
     const level = score >= 75 ? 'green' : score >= 50 ? 'amber' : 'red';
@@ -299,6 +310,12 @@
     var map = { new: 'me.new', invited: 'me.invited', declined: 'me.declined' };
     var cls = { new: 'status-new', invited: 'badge badge-green', declined: 'badge badge-gray' };
     return el('span', cls[status] || 'badge badge-gray', t(map[status] || status));
+  }
+  // причина вердикта: новые скрининги триязычны {s,ru,zh,en},
+  // старые (до локализации) хранили готовый текст в r.text
+  function reasonText(r, lang) {
+    if (!r) return '';
+    return r[lang] || r.ru || r.text || r.en || r.zh || '';
   }
 
   /* ── P2-1: индикация облачных операций ── */
@@ -525,8 +542,10 @@
           var box = document.getElementById('auth-ok');
           box.textContent = t('auth.recCode', { code: rec.recCode });
           box.hidden = false;
+          setBusy(btn, false);
           afterAuth({ email: email, role: authRole, name: rec.name, blob: rec.blob || null }, 2600);
         } else {
+          setBusy(btn, false);
           afterAuth({ email: email, role: authRole, name: rec.name, blob: rec.blob || null });
         }
       } else {
@@ -577,10 +596,7 @@
         card.appendChild(el('b', null, displayTitle(v, getLang())));
         card.appendChild(el('div', 'job-co', v.company + ' · ' + v.district));
         var stats = el('div', 'job-stats');
-        if (v.salaryFrom) {
-          var csJ = CUR_SYM[v.cur || 'RUB'];
-          stats.appendChild(el('span', 'chip', t('misc.from', { sum: fmtMoney(v.salaryFrom) }) + ' ' + csJ));
-        }
+        if (v.salaryFrom) stats.appendChild(el('span', 'chip', money(v.salaryFrom, v.cur)));
         if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
         if (v.reqLang && v.reqLang !== 'any') stats.appendChild(el('span', 'chip', t('job.langReq', { lang: langName(v.reqLang) })));
         card.appendChild(stats);
@@ -853,7 +869,7 @@
       vacs.forEach(function (v) {
         var item = el('div', 'vacancy-item');
         item.appendChild(el('b', null, v.title));
-        item.appendChild(el('div', 'vacancy-meta', v.district + (v.salaryFrom ? ' · ' + t('misc.from', { sum: fmtMoney(v.salaryFrom) }) : '')));
+        item.appendChild(el('div', 'vacancy-meta', v.district + (v.salaryFrom ? ' · ' + money(v.salaryFrom, v.cur) : '')));
         var stats = el('div', 'vacancy-stats');
         stats.appendChild(el('span', 'badge badge-gray', fmtDate(v.createdAt)));
         var apps = (blob.applications || []).filter(function (a) { return a.vacancyId === v.id; });
@@ -1133,7 +1149,7 @@
     (a.langs || []).forEach(function (l) { chips.appendChild(el('span', 'chip', langName(l))); });
     chips.appendChild(el('span', 'chip', a.years ? String(a.years) : t('c.noexp')));
     if (a.district) chips.appendChild(el('span', 'chip', a.district));
-    if (a.salary) chips.appendChild(el('span', 'chip', t('c.expects', { sum: fmtMoney(a.salary) })));
+    if (a.salary) chips.appendChild(el('span', 'chip', t('c.expects', { sum: money(a.salary, a.salCur) })));
     card.appendChild(chips);
 
     var ownerLang = getLang();
