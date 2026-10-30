@@ -230,7 +230,7 @@
       'c.expects': 'ожидает {sum} ₽',
       'c.resumeAttached': 'резюме приложено',
       'misc.fromPerMonth': 'от {sum} ₽/мес',
-      'misc.from': 'от {sum} ₽',
+      'misc.from': 'от {sum}',
 
       'create.lang': 'Знание языка (требование к кандидату)',
       'langOpt.any': 'Не важно',
@@ -486,7 +486,7 @@
       'c.expects': 'expects {sum} RUB',
       'c.resumeAttached': 'resume attached',
       'misc.fromPerMonth': 'from {sum} RUB/mo',
-      'misc.from': 'from {sum} RUB',
+      'misc.from': 'from {sum}',
 
       'create.lang': 'Required language (candidate requirement)',
       'langOpt.any': 'Any language',
@@ -742,7 +742,7 @@
       'c.expects': '期望 {sum} ₽',
       'c.resumeAttached': '已附简历',
       'misc.fromPerMonth': '{sum} ₽/月起',
-      'misc.from': '{sum} ₽ 起',
+      'misc.from': '{sum} 起',
 
       'create.lang': '要求语言（对应聘者的要求）',
       'langOpt.any': '不限',
