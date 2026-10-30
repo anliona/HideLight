@@ -565,7 +565,10 @@
         card.appendChild(el('b', null, displayTitle(v, getLang())));
         card.appendChild(el('div', 'job-co', v.company + ' · ' + v.district));
         var stats = el('div', 'job-stats');
-        if (v.salaryFrom) stats.appendChild(el('span', 'chip', t('misc.fromPerMonth', { sum: fmtMoney(v.salaryFrom) })));
+        if (v.salaryFrom) {
+          var csJ = CUR_SYM[v.cur || 'RUB'];
+          stats.appendChild(el('span', 'chip', t('misc.from', { sum: fmtMoney(v.salaryFrom) }) + ' ' + csJ));
+        }
         if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
         if (v.reqLang && v.reqLang !== 'any') stats.appendChild(el('span', 'chip', t('job.langReq', { lang: langName(v.reqLang) })));
         card.appendChild(stats);
@@ -764,6 +767,7 @@
         title: f.title.value.trim().slice(0, 100),
         district: f.district.value.trim().slice(0, 100),
         salaryFrom: parseInt(f.salaryFrom.value, 10) || null,
+        cur: f.cur.value,
         schedule: f.schedule.value.trim().slice(0, 80),
         description: f.description.value.trim().slice(0, 2000),
         reqLang: f.reqLang.value,
@@ -779,8 +783,8 @@
       feed.push({
         id: v.id, blob: myBlobKey(), title: v.title, company: blob.company.name,
         companyDesc: blob.company.desc || '', companyCity: blob.company.city || '',
-        district: v.district, salaryFrom: v.salaryFrom, schedule: v.schedule,
-        reqLang: v.reqLang, description: v.description, createdAt: v.createdAt,
+        district: v.district, salaryFrom: v.salaryFrom, cur: v.cur || 'RUB',
+        schedule: v.schedule, reqLang: v.reqLang, description: v.description, createdAt: v.createdAt,
       });
       await cloudWrite(JOBS_KEY, feed);
       setBusy(btn, false);
