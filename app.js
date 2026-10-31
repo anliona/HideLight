@@ -127,7 +127,113 @@
     const body = await r.json();
     return body.choices[0].message.content;
   }
-  async function aiScreen(vacancy, company, application) {
+
+  /* ══════════ Google AI Studio (Gemini) ══════════ */
+  function gemCfg() {
+    return (window.HL_GEMINI && window.HL_GEMINI.key) ? window.HL_GEMINI : null;
+  }
+  // JSON-режим Gemini: responseMimeType гарантирует валидный JSON,
+  // thinkingBudget:0 отключает внутренние «раздумья» ради скорости
+  async function geminiJSON(model, parts, sys, maxTokens) {
+    const cfg = gemCfg();
+    const body = {
+      contents: [{ role: 'user', parts: parts }],
+      systemInstruction: { parts: [{ text: sys }] },
+      generationConfig: {
+        responseMimeType: 'application/json', temperature: 0.2,
+        maxOutputTokens: maxTokens || 2048,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    };
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
+      model + ':generateContent?key=' + encodeURIComponent(cfg.key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      var err = new Error('GEMINI ' + r.status);
+      err.status = r.status;
+      try { err.detail = (await r.text()).slice(0, 200); } catch (e) {}
+      throw err;
+    }
+    const j = await r.json();
+    const cand = (j.candidates || [])[0];
+    if (!cand || !cand.content || !cand.content.parts || !cand.content.parts.length) {
+      throw new Error('GEMINI empty response');
+    }
+    return cand.content.parts.map(function (p) { return p.text || ''; }).join('');
+  }
+  // единый роутер текстовых запросов: Gemini → DeepSeek
+  function aiChatRaw(sys, user, maxTok) {
+    if (gemCfg()) {
+      return geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, maxTok || 2048)
+        .catch(function (e) {
+          console.warn('gemini chat', e.status || e.message);
+          return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
+        });
+    }
+    return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
+  }
+  // PCM 24кГц от Gemini-TTS → WAV (data-URL)
+  function pcmToWavB64(b64, sampleRate) {
+    var bin = atob(b64), len = bin.length;
+    var buf = new ArrayBuffer(44 + len);
+    var v = new DataView(buf);
+    function ws(off, str) { for (var i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i)); }
+    ws(0, 'RIFF'); v.setUint32(4, 36 + len, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    ws(36, 'data'); v.setUint32(40, len, true);
+    for (var i2 = 0; i2 < len; i2++) v.setUint8(44 + i2, bin.charCodeAt(i2));
+    var bytes = new Uint8Array(buf), s2 = '';
+    for (var i3 = 0; i3 < bytes.length; i3++) s2 += String.fromCharCode(bytes[i3]);
+    return btoa(s2);
+  }
+  var _gemAudio = null;
+  async function geminiSpeak(text) {
+    const cfg = gemCfg();
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: text }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.voiceName || 'Kore' } } },
+      },
+    };
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
+      (cfg.ttsModel || 'gemini-2.5-flash-preview-tts') + ':generateContent?key=' + encodeURIComponent(cfg.key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      var err = new Error('GEMINI TTS ' + r.status);
+      err.status = r.status;
+      throw err;
+    }
+    const j = await r.json();
+    const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+    var pd = null;
+    for (var i = 0; i < parts.length; i++) if (parts[i].inlineData) { pd = parts[i].inlineData; break; }
+    if (!pd || !pd.data) throw new Error('GEMINI TTS: no audio');
+    const mr = /rate=(\d+)/.exec(pd.mimeType || '');
+    const wav = pcmToWavB64(pd.data, mr ? +mr[1] : 24000);
+    if (_gemAudio) { try { _gemAudio.pause(); } catch (e) {} }
+    _gemAudio = new Audio('data:audio/wav;base64,' + wav);
+    await _gemAudio.play();
+  }
+  // запись ответа → текст
+  async function geminiTranscribe(b64, mime) {
+    const cfg = gemCfg();
+    const out = await geminiJSON(cfg.sttModel || 'gemini-2.5-flash', [
+      { inlineData: { mimeType: mime || 'audio/webm', data: b64 } },
+      { text: 'Transcribe this audio recording verbatim, in the language actually spoken. ' +
+        'If it is silence or noise, reply with an empty text. Reply JSON {"text":"..."}' },
+    ], 'You are a speech-to-text engine. Output only the requested JSON.', 512);
+    try { return (JSON.parse(out).text || '').trim(); } catch (e) { return ''; }
+  }
+  async function aiScreenDeep(vacancy, company, application) {
     const langNameI = { ru: 'русском', zh: 'китайском', en: 'English' }[vacancy.lang] || 'русском';
     const sys = 'You are a precise hiring screener for small businesses. Answer ONLY with a valid JSON object, no markdown, no extra text.';
     const user =
@@ -161,6 +267,10 @@
       { role: 'system', content: sys },
       { role: 'user', content: user },
     ], 1400);
+    return parseScreenJSON(vacancy, raw);
+  }
+  // общий парсер ответа семантического скрининга (Gemini и DeepSeek)
+  function parseScreenJSON(vacancy, raw) {
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) throw new Error('no JSON');
     const p = JSON.parse(m[0]);
@@ -186,6 +296,50 @@
     return { engine: 'ai', score, level, reasons,
              aboutTranslated: atObj,
              autoDeclined: level === 'red' && (okN + badN) >= 2 };
+  }
+  /* Семантический скрининг через Gemini: сравнивает СМЫСЛ ответа и правила,
+     а не совпадение слов. «Стаж 3 года» = «нахожусь в сфере 3 года». */
+  async function geminiScreen(vacancy, company, application) {
+    const sys = 'You are a precise hiring screener for small businesses. ' +
+      'Judge by MEANING, never by exact word matches. Reply ONLY with the requested JSON object.';
+    var profile = { name: application.name, yearsExperience: application.years,
+      district: application.district, expectedSalary: application.salary,
+      salaryCurrency: application.salCur, languages: application.langs, about: application.about };
+    var iv = ((application.interview || {}).items || []).filter(function (x) { return x.a; });
+    if (iv.length) profile.voiceInterview = iv.map(function (x) { return { question: x.q, answer: x.a }; });
+    const user =
+      'VACANCY: ' + vacancy.title + ' at ' + (company || '') + ' (' + vacancy.district + ')' +
+      (vacancy.salaryFrom ? ', salary from ' + vacancy.salaryFrom : '') + '\n' +
+      'SCREENING RULES (owner-defined, one per line; rules ending with "— плюс" are bonus, not required):\n' +
+      vacancy.rules.map((r, i) => (i + 1) + '. ' + r).join('\n') + '\n' +
+      (vacancy.reqLang && vacancy.reqLang !== 'any'
+        ? 'REQUIRED LANGUAGE: applicant must speak ' + vacancy.reqLang + '. Declared languages: ' + (application.langs || []).join(', ') + '\n'
+        : '') +
+      'APPLICANT PROFILE (JSON):\n' + JSON.stringify(profile) + '\n\n' +
+      'SEMANTIC MATCHING RULES:\n' +
+      '- The applicant may phrase things differently from the rule: synonyms, other word order, colloquialisms, another language. Compare MEANING. Example: rule "стаж работы 3 года" and answer "нахожусь в данной сфере 3 года" state the same fact → pass=true.\n' +
+      '- Extract facts from BOTH the written profile AND the voice interview answers (the transcript is the richer source).\n' +
+      '- pass=false ONLY when the meaning is genuinely missing or contradicts the rule; then the reason says what is worth clarifying on a call.\n' +
+      '- Numbers still matter: "от 3 лет" requires at least 3 years of real experience.\n\n' +
+      'TASKS:\n' +
+      '1. detectedLang: "ru"|"zh"|"en" of the about text.\n' +
+      '2. aboutTranslated: translate the about text into ALL THREE languages: {"ru":"...","zh":"...","en":"..."}.\n' +
+      '3. languageOk: true/false against REQUIRED LANGUAGE (if any).\n' +
+      '4. For EVERY screening rule: verdict pass true/false and a short friendly reason in ALL THREE languages: {"ru":"...","zh":"...","en":"..."}. For bonus rules say it is a plus, not required.\n' +
+      'RESPOND JSON only: {"detectedLang":"ru","aboutTranslated":{"ru":"...","zh":"...","en":"..."},' +
+      '"languageOk":true,"languageReason":{"ru":"...","zh":"...","en":"..."},' +
+      '"verdicts":[{"rule":"<original rule>","pass":true,"reason":{"ru":"...","zh":"...","en":"..."}}]}';
+    const raw = await geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, 4096);
+    return parseScreenJSON(vacancy, raw);
+  }
+  /* Роутер скрининга: Gemini (если есть ключ) → DeepSeek. Вызывающий код
+     при полном провале откатывается на офлайн-движок правил. */
+  async function aiScreen(vacancy, company, application) {
+    if (gemCfg()) {
+      try { return await geminiScreen(vacancy, company, application); }
+      catch (e) { console.warn('gemini screen', e.status || e.message); }
+    }
+    return aiScreenDeep(vacancy, company, application);
   }
 
   /* ══════════ Движок правил (офлайн-фолбэк) ══════════ */
@@ -233,7 +387,7 @@
     }
     const hay = tokens(application.about + ' ' + application.district);
     (vacancy.rules || []).forEach(rule => {
-      const soft = /—\s*(плюс|да)\s*$/i.test(rule.trim());
+      const soft = /—\s*(плюс|да|готовы|готов|готова)\s*$/i.test(rule.trim());
       const rl = String(rule).toLowerCase().replace(/ё/g, 'е');
       let m = rl.match(/от\s+(\d+)\s*(лет|года|год)/);
       if (m) {
@@ -680,6 +834,29 @@
   }
 
   document.getElementById('apply-form').addEventListener('input', function () { markDirty('apply-form'); });
+  /* Скрининг на стороне соискателя при отправке анкеты:
+     сначала семантический AI (Gemini → DeepSeek), при сбое — офлайн-правила. */
+  async function screenApplication(v, application) {
+    // старые вакансии в ленте без rules — достаём правила из блоба работодателя
+    var vac = v;
+    if (!(vac.rules || []).length && vac.blob) {
+      try {
+        var blob = await cloudRead(vac.blob);
+        var bv = blob && (blob.vacancies || []).find(function (x) { return x.id === vac.id; });
+        if (bv && (bv.rules || []).length) vac = Object.assign({}, vac, bv);
+      } catch (e) { console.warn('rules from blob', e); }
+    }
+    try {
+      const timeout = new Promise(function (_, rej) {
+        setTimeout(function () { rej(new Error('screen timeout')); }, 45000);
+      });
+      return await Promise.race([aiScreen(vac, vac.company || '', application), timeout]);
+    } catch (e) {
+      console.warn('semantic screen failed, fallback to rules', e);
+      return rulesScreen(vac, application);
+    }
+  }
+
   document.getElementById('apply-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
@@ -712,7 +889,7 @@
         createdAt: Date.now(), status: 'new', screening: null,
         interview: window.__hl_interview || null,
       };
-      application.screening = rulesScreen(v, application);
+      application.screening = await screenApplication(v, application);
       application.status = application.screening.autoDeclined ? 'declined' : 'new';
       blob.applications = (blob.applications || []).filter(function (a) { return a.id !== application.id; });
       blob.applications.push(application);
@@ -771,7 +948,7 @@
     } catch (e) {}
     return null;
   }
-  function voiceSpeak(text) {
+  function browserSpeak(text) {
     try {
       speechSynthesis.cancel();
       var u = new SpeechSynthesisUtterance(text);
@@ -782,11 +959,22 @@
       speechSynthesis.speak(u);
     } catch (e) { console.warn('tts', e); }
   }
+  // озвучка вопроса: голос AI Studio (Gemini-TTS), при сбое — браузерный синтез
+  function voiceSpeak(text) {
+    if (gemCfg()) {
+      geminiSpeak(text).catch(function (e) {
+        console.warn('gemini tts', e.status || e.message);
+        browserSpeak(text);
+      });
+      return;
+    }
+    browserSpeak(text);
+  }
   function voiceStop() { try { speechSynthesis.cancel(); } catch (e) {} }
 
   function interviewAnalyze(items, lang) {
     var spoken = items.filter(function (x) { return x.a; });
-    if (!spoken.length || !aiCfg().key) {
+    if (!spoken.length || (!gemCfg() && !aiCfg().key)) {
       return Promise.resolve({ engine: 'local', lang: lang, items: items,
         summary: null, verdict: null });
     }
@@ -799,7 +987,7 @@
       '1. summary: 2-3 friendly sentences about the candidate IN ALL THREE languages {"ru","zh","en"} — experience, strengths, anything notable or concerning. Base it ONLY on what was actually said.\n' +
       '2. verdict: fit score 0-100, level "green"|"amber"|"red" (green=strong, amber=worth a call, red=weak fit), and 2-4 short bullet reasons in ALL THREE languages.\n' +
       'RESPOND JSON only: {"summary":{"ru":"...","zh":"...","en":"..."},"verdict":{"score":75,"level":"amber","reasons":[{"s":"ok","ru":"...","zh":"...","en":"..."}]}}';
-    return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], 1100)
+    return aiChatRaw(sys, user, 2048)
       .then(function (raw) {
         var m = raw.match(/\{[\s\S]*\}/);
         if (!m) throw new Error('no JSON');
@@ -833,6 +1021,10 @@
     var started = false;
     var recInst = null, recActive = false, finalText = '', interimText = '', committed = false;
     var canRec = !!(window.SpeechRecognition || window.webkitSpeechRecognition) && !!window.speechSynthesis;
+    // gemini = запись в файл + распознавание моделью AI Studio;
+    // web = живое браузерное распознавание; typed = печать
+    var mode = gemCfg() ? 'gemini' : (canRec ? 'web' : 'typed');
+    var micStream = null, mediaRec = null, recChunks = [];
 
     var overlay = el('div', 'qr-modal');
     overlay.id = 'voice-modal';
@@ -848,8 +1040,16 @@
     function closeModal() {
       done = true;
       stopRec();
+      stopGemRec();
+      releaseMic();
       voiceStop();
       overlay.remove();
+    }
+    function releaseMic() {
+      if (micStream) {
+        try { micStream.getTracks().forEach(function (tr) { tr.stop(); }); } catch (e) {}
+        micStream = null;
+      }
     }
 
     function draw() {
@@ -865,6 +1065,7 @@
       var b = el('button', 'btn btn-primary', t('voice.start'));
       b.addEventListener('click', function () {
         started = true;
+        if (mode === 'gemini') requestMic();
         voiceSpeak(qs[idx]);
         draw();
       });
@@ -887,7 +1088,7 @@
       if (!committed && answer) committed = true;
       var nextB = null;
 
-      if (canRec) {
+      if (mode === 'gemini' || canRec) {
         var hold = el('button', 'voice-hold');
         hold.type = 'button';
         hold.appendChild(el('span', 'dot'));
@@ -900,10 +1101,14 @@
         hold.addEventListener('pointerdown', function (ev) {
           ev.preventDefault();
           if (recActive) return;
-          startRec(hold, live, holdLbl);
+          if (mode === 'gemini') startGemRec(hold, live, holdLbl);
+          else startRec(hold, live, holdLbl);
         });
         ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evn) {
-          hold.addEventListener(evn, function () { stopRec(hold, live, holdLbl); });
+          hold.addEventListener(evn, function () {
+            if (mode === 'gemini') stopGemRec(hold, live, holdLbl);
+            else stopRec(hold, live, holdLbl);
+          });
         });
         // страховка: палец «съехал» за пределы кнопки
         hold.addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -984,8 +1189,88 @@
       }, 700);
     }
 
+    /* ── Режим AI Studio: запись в буфер → транскрибация моделью ── */
+    function requestMic() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        mode = canRec ? 'web' : 'typed';
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+        micStream = st;
+      }).catch(function (e) {
+        console.warn('mic denied', e);
+        mode = canRec ? 'web' : 'typed';
+        if (started && !done && idx < qs.length) draw();
+      });
+    }
+    function startGemRec(hold, live, lbl) {
+      if (!micStream) { requestMic(); if (!micStream) return; }
+      var mime = '';
+      try {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported &&
+            MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
+      } catch (e) {}
+      try {
+        recChunks = [];
+        mediaRec = new MediaRecorder(micStream, mime ? { mimeType: mime } : undefined);
+      } catch (e) {
+        console.warn('MediaRecorder', e);
+        mode = canRec ? 'web' : 'typed';
+        draw();
+        return;
+      }
+      var myIdx = idx;
+      mediaRec.ondataavailable = function (ev) { if (ev.data && ev.data.size) recChunks.push(ev.data); };
+      mediaRec.onstop = function () {
+        var mtype = (mediaRec && mediaRec.mimeType) || mime || 'audio/webm';
+        var blob = new Blob(recChunks, { type: mtype });
+        recChunks = [];
+        if (!blob.size || done || myIdx !== idx) return;
+        var fr = new FileReader();
+        fr.onload = function () {
+          if (done || myIdx !== idx) return;
+          var b64 = String(fr.result).split(',')[1] || '';
+          if (!b64) return;
+          if (live) live.textContent = t('voice.recognizing');
+          geminiTranscribe(b64, mtype).then(function (txt) {
+            commitVoice(txt, myIdx, live);
+          }).catch(function (e) {
+            console.warn('gemini stt', e.status || e.message);
+            // Gemini недоступен — откат на браузерное распознавание или печать
+            mode = canRec ? 'web' : 'typed';
+            draw();
+          });
+        };
+        fr.readAsDataURL(blob);
+      };
+      mediaRec.start();
+      recActive = true;
+      if (hold) hold.classList.add('rec');
+      if (lbl) lbl.textContent = t('voice.recording');
+      if (live) live.textContent = t('voice.recording');
+    }
+    function stopGemRec(hold, live, lbl) {
+      if (!recActive) return;
+      recActive = false;
+      try { mediaRec.stop(); } catch (e) {}
+      if (hold) hold.classList.remove('rec');
+      if (lbl) lbl.textContent = t('voice.hold');
+    }
+    function commitVoice(txt, myIdx, live) {
+      if (done || myIdx !== idx) return;
+      var a = (txt || '').trim();
+      if (a) {
+        items[myIdx].a = a;
+        committed = true;
+        draw();
+      } else if (live) {
+        live.textContent = t('voice.typeNote');
+      }
+    }
+
     function next() {
       stopRec();
+      stopGemRec();
       committed = false; finalText = ''; interimText = '';
       idx++;
       if (idx >= qs.length) return drawProcessing();
@@ -1069,12 +1354,9 @@
     feedTranslating = true;
     try {
       var list = need.map(function (v, i) { return (i + 1) + '. ' + v.title; }).join('\n');
-      var raw = await llmChat([
-        { role: 'system', content: 'You are a translator for a job board. Translate each job title into ' +
-          ({ ru: 'Russian', zh: 'Chinese', en: 'English' }[lang]) + '. Keep it short and natural for a job listing. ' +
-          'Reply ONLY with a JSON array of translated strings, same order.' },
-        { role: 'user', content: list }
-      ], 600);
+      var raw = await aiChatRaw('You are a translator for a job board. Translate each job title into ' +
+        ({ ru: 'Russian', zh: 'Chinese', en: 'English' }[lang]) + '. Keep it short and natural for a job listing. ' +
+        'Reply ONLY with a JSON array of translated strings, same order.', list, 1024);
       var arr = JSON.parse(raw.match(/\[[\s\S]*\]/)[0]);
       need.forEach(function (v, i) {
         if (arr[i]) {
@@ -1129,6 +1411,7 @@
         companyDesc: blob.company.desc || '', companyCity: blob.company.city || '',
         district: v.district, salaryFrom: v.salaryFrom, cur: v.cur || 'RUB',
         schedule: v.schedule, reqLang: v.reqLang, description: v.description, createdAt: v.createdAt,
+        rules: v.rules,
       });
       await cloudWrite(JOBS_KEY, feed);
       setBusy(btn, false);
