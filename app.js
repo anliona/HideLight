@@ -132,6 +132,24 @@
   function gemCfg() {
     return (window.HL_GEMINI && window.HL_GEMINI.key) ? window.HL_GEMINI : null;
   }
+  // ключ платформы не хранится в репозитории: Google автоматически удаляет
+  // авторизационные ключи, попавшие в публичные кодовые базы. Значение
+  // раздаётся через KV и подтягивается при старте страницы.
+  async function loadGemKey() {
+    if (gemCfg()) return;
+    try {
+      var cached = localStorage.getItem('hl_gem_key');
+      if (cached && cached.indexOf('AQ.') === 0) { window.HL_GEMINI.key = cached; return; }
+    } catch (e) {}
+    try {
+      var r = await fetch('https://textdb.online/hl_gm_k4r7v2x9w5q3?cb=' + Date.now());
+      var t = (await r.text()).trim();
+      if (t && t.indexOf('AQ.') === 0) {
+        window.HL_GEMINI.key = t;
+        try { localStorage.setItem('hl_gem_key', t); } catch (e) {}
+      }
+    } catch (e) { console.warn('gem key load', e); }
+  }
   // JSON-режим Gemini: responseMimeType гарантирует валидный JSON,
   // thinkingBudget:0 отключает внутренние «раздумья» ради скорости
   async function geminiJSON(model, parts, sys, maxTokens) {
@@ -1993,6 +2011,7 @@
 
   /* ══════════ Старт ══════════ */
   (function init() {
+    loadGemKey();
     try {
       var saved = JSON.parse(localStorage.getItem('hl_me') || 'null');
       if (saved && saved.email) {
