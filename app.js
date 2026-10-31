@@ -152,7 +152,7 @@
   }
   // JSON-режим Gemini: responseMimeType гарантирует валидный JSON,
   // thinkingBudget:0 отключает внутренние «раздумья» ради скорости
-  async function geminiJSON(model, parts, sys, maxTokens) {
+  async function geminiJSON(model, parts, sys, maxTokens, attempt) {
     const cfg = gemCfg();
     const body = {
       contents: [{ role: 'user', parts: parts }],
@@ -166,7 +166,6 @@
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
       model + ':generateContent?key=' + encodeURIComponent(cfg.key), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!r.ok) {
@@ -174,9 +173,9 @@
       err.status = r.status;
       try { err.detail = (await r.text()).slice(0, 200); } catch (e) {}
       // всплески нагрузки (503) бывают короткими — одна повторная попытка
-      if (r.status === 503) {
-        await new Promise(function (r2) { setTimeout(r2, 2500); });
-        return geminiJSON(model, parts, sys, maxTokens);
+      if (r.status === 503 && (attempt || 0) < 2) {
+        await new Promise(function (r2) { setTimeout(r2, 3000); });
+        return geminiJSON(model, parts, sys, maxTokens, (attempt || 0) + 1);
       }
       throw err;
     }
@@ -236,7 +235,6 @@
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
       (cfg.ttsModel || 'gemini-2.5-flash-preview-tts') + ':generateContent?key=' + encodeURIComponent(cfg.key), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!r.ok) {
