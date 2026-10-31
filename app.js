@@ -164,16 +164,25 @@
     }
     return cand.content.parts.map(function (p) { return p.text || ''; }).join('');
   }
-  // единый роутер текстовых запросов: Gemini → DeepSeek
+  // порядок провайдеров: Gemini first (по умолчанию) или DeepSeek first
+  function geminiFirst() {
+    return gemCfg() && (!window.HL_GEMINI.priority || window.HL_GEMINI.priority === 'first');
+  }
+  // единый роутер текстовых запросов: Gemini → DeepSeek (или наоборот)
   function aiChatRaw(sys, user, maxTok) {
-    if (gemCfg()) {
+    if (!gemCfg()) return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
+    if (geminiFirst()) {
       return geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, maxTok || 2048)
         .catch(function (e) {
           console.warn('gemini chat', e.status || e.message);
           return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
         });
     }
-    return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
+    return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900)
+      .catch(function (e) {
+        console.warn('deepseek chat', e.status || e.message);
+        return geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, maxTok || 2048);
+      });
   }
   // PCM 24кГц от Gemini-TTS → WAV (data-URL)
   function pcmToWavB64(b64, sampleRate) {
@@ -335,11 +344,15 @@
   /* Роутер скрининга: Gemini (если есть ключ) → DeepSeek. Вызывающий код
      при полном провале откатывается на офлайн-движок правил. */
   async function aiScreen(vacancy, company, application) {
-    if (gemCfg()) {
+    if (!gemCfg()) return aiScreenDeep(vacancy, company, application);
+    if (geminiFirst()) {
       try { return await geminiScreen(vacancy, company, application); }
       catch (e) { console.warn('gemini screen', e.status || e.message); }
+      return aiScreenDeep(vacancy, company, application);
     }
-    return aiScreenDeep(vacancy, company, application);
+    try { return await aiScreenDeep(vacancy, company, application); }
+    catch (e) { console.warn('deepseek screen', e.status || e.message); }
+    return geminiScreen(vacancy, company, application);
   }
 
   /* ══════════ Движок правил (офлайн-фолбэк) ══════════ */
