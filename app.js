@@ -155,6 +155,11 @@
       var err = new Error('GEMINI ' + r.status);
       err.status = r.status;
       try { err.detail = (await r.text()).slice(0, 200); } catch (e) {}
+      // всплески нагрузки (503) бывают короткими — одна повторная попытка
+      if (r.status === 503) {
+        await new Promise(function (r2) { setTimeout(r2, 2500); });
+        return geminiJSON(model, parts, sys, maxTokens);
+      }
       throw err;
     }
     const j = await r.json();
@@ -226,10 +231,12 @@
     var pd = null;
     for (var i = 0; i < parts.length; i++) if (parts[i].inlineData) { pd = parts[i].inlineData; break; }
     if (!pd || !pd.data) throw new Error('GEMINI TTS: no audio');
-    const mr = /rate=(\d+)/.exec(pd.mimeType || '');
-    const wav = pcmToWavB64(pd.data, mr ? +mr[1] : 24000);
+    // новые TTS-модели отдают готовый WAV — не перекодируем
+    var src = /wav/i.test(pd.mimeType || '')
+      ? 'data:audio/wav;base64,' + pd.data
+      : 'data:audio/wav;base64,' + pcmToWavB64(pd.data, (/rate=(\d+)/.exec(pd.mimeType || '') || [])[1] || 24000);
     if (_gemAudio) { try { _gemAudio.pause(); } catch (e) {} }
-    _gemAudio = new Audio('data:audio/wav;base64,' + wav);
+    _gemAudio = new Audio(src);
     await _gemAudio.play();
   }
   // запись ответа → текст

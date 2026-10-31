@@ -14,8 +14,8 @@ window.HL_AI = {
 // переключится на него (без ключа работает встроенный голос + правила).
 window.HL_GEMINI = {
   key: '',
-  sttModel: 'gemini-2.5-flash',             // анализ текста + распознавание записей
-  ttsModel: 'gemini-2.5-flash-preview-tts', // голос AI-интервью
+  sttModel: 'gemini-3.8-flash',             // анализ текста + распознавание записей
+  ttsModel: 'gemini-3.8-flash-tts', // голос AI-интервью
   voiceName: 'Kore',                         // Kore / Puck / Charon / Aoede ...
   priority: 'first'  // 'first' = Gemini прежде DeepSeek; 'second' = DeepSeek прежде Gemini
                      // (для аудитории из Китая ставьте 'second': Gemini без VPN там недоступен)
