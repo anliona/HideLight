@@ -808,6 +808,24 @@
   }
 
   /* ══════════ Страница вакансии (P3-2: показываем компанию) ══════════ */
+  // карточка условий: то, что работодатель заполнил сам (чипы + описание + правила)
+  function vacancyDetails(v) {
+    var det = el('div', 'card vacancy-details');
+    var stats = el('div', 'vacancy-stats');
+    if (v.district) stats.appendChild(el('span', 'chip', v.district));
+    if (v.salaryFrom) stats.appendChild(el('span', 'chip', money(v.salaryFrom, v.cur)));
+    if (v.schedule) stats.appendChild(el('span', 'chip', v.schedule));
+    if (v.reqLang && v.reqLang !== 'any') stats.appendChild(el('span', 'chip', t('job.langReq', { lang: langName(v.reqLang) })));
+    if (stats.children.length) det.appendChild(stats);
+    if (v.description) det.appendChild(el('p', 'muted', v.description));
+    if ((v.rules || []).length) {
+      det.appendChild(el('div', 'rules-head', t('vac.rulesHead')));
+      var rl = el('div', 'rules-list');
+      v.rules.forEach(function (r, i) { rl.appendChild(el('div', 'rule-line', (i + 1) + '. ' + r)); });
+      det.appendChild(rl);
+    }
+    return det;
+  }
   function vacancyHead(v) {
     var head = el('div', 'card');
     head.appendChild(el('div', 'kicker', v.company));
@@ -821,6 +839,12 @@
     if (v.companyDesc) head.appendChild(el('p', 'muted', v.companyDesc));
     if (v.reqLang && v.reqLang !== 'any') {
       head.appendChild(el('div', 'lang-note', t('apply.langNote', { lang: langName(v.reqLang) })));
+    }
+    if ((v.rules || []).length) {
+      head.appendChild(el('div', 'rules-head', t('vac.rulesHead')));
+      var rl = el('div', 'rules-list');
+      v.rules.forEach(function (r, i) { rl.appendChild(el('div', 'rule-line', (i + 1) + '. ' + r)); });
+      head.appendChild(rl);
     }
     return head;
   }
@@ -1716,6 +1740,7 @@
       var body = document.getElementById('empvac-body');
       clear(body);
       if (!v) { body.appendChild(el('p', 'muted', t('jobs.empty'))); return; }
+      body.appendChild(vacancyDetails(v));
 
       var all = (blob.applications || []).filter(function (a) { return a.vacancyId === vid; })
         .sort(function (x, y) { return y.createdAt - x.createdAt; });

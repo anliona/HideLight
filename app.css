@@ -842,3 +842,8 @@ input.has-err, textarea.has-err, select.has-err { border-color: var(--red) !impo
 .interview-block .qa { margin: 8px 0 0; font-size: 13px; line-height: 1.5; }
 .interview-block .qa b { display: block; }
 .interview-block .qa .qa-a { color: var(--muted); white-space: pre-wrap; }
+
+/* ══════════ Детали вакансии (условия + правила) ══════════ */
+.vacancy-details { margin-bottom: 16px; }
+.rules-head { font-weight: 800; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 12px 0 8px; }
+.rule-line { background: var(--bg, #f6f7fb); border-radius: 10px; padding: 8px 12px; font-size: 14px; line-height: 1.45; margin: 5px 0; }
