@@ -154,14 +154,16 @@
   // thinkingBudget:0 отключает внутренние «раздумья» ради скорости
   async function geminiJSON(model, parts, sys, maxTokens, attempt) {
     const cfg = gemCfg();
+    const gc = {
+      responseMimeType: 'application/json', temperature: 0.2,
+      maxOutputTokens: maxTokens || 2048,
+    };
+    // lite-модели параметр thinking не принимают
+    if (model.indexOf('lite') < 0) gc.thinkingConfig = { thinkingBudget: 0 };
     const body = {
       contents: [{ role: 'user', parts: parts }],
       systemInstruction: { parts: [{ text: sys }] },
-      generationConfig: {
-        responseMimeType: 'application/json', temperature: 0.2,
-        maxOutputTokens: maxTokens || 2048,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: gc,
     };
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
       model + ':generateContent?key=' + encodeURIComponent(cfg.key), {
@@ -191,10 +193,11 @@
     return gemCfg() && (!window.HL_GEMINI.priority || window.HL_GEMINI.priority === 'first');
   }
   // единый роутер текстовых запросов: Gemini → DeepSeek (или наоборот)
-  function aiChatRaw(sys, user, maxTok) {
+  function aiChatRaw(sys, user, maxTok, model) {
+    var gm = model || (gemCfg() && gemCfg().sttModel) || 'gemini-2.5-flash';
     if (!gemCfg()) return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
     if (geminiFirst()) {
-      return geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, maxTok || 2048)
+      return geminiJSON(gm, [{ text: user }], sys, maxTok || 2048)
         .catch(function (e) {
           console.warn('gemini chat', e.status || e.message);
           return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900);
@@ -203,7 +206,7 @@
     return llmChat([{ role: 'system', content: sys }, { role: 'user', content: user }], maxTok || 900)
       .catch(function (e) {
         console.warn('deepseek chat', e.status || e.message);
-        return geminiJSON(gemCfg().sttModel || 'gemini-2.5-flash', [{ text: user }], sys, maxTok || 2048);
+        return geminiJSON(gm, [{ text: user }], sys, maxTok || 2048);
       });
   }
   // PCM 24кГц от Gemini-TTS → WAV (data-URL)
@@ -258,7 +261,7 @@
   // запись ответа → текст
   async function geminiTranscribe(b64, mime) {
     const cfg = gemCfg();
-    const out = await geminiJSON(cfg.sttModel || 'gemini-2.5-flash', [
+    const out = await geminiJSON(cfg.turnModel || cfg.sttModel || 'gemini-2.5-flash', [
       { inlineData: { mimeType: mime || 'audio/webm', data: b64 } },
       { text: 'Transcribe this audio recording verbatim, in the language actually spoken. ' +
         'If it is silence or noise, reply with an empty text. Reply JSON {"text":"..."}' },
@@ -1127,7 +1130,7 @@
         ? '2. followUp: "" (empty string).\n'
         : '2. followUp: ONE short clarifying question about the last answer ONLY if it is vague, too short, or misses specifics an employer would need (responsibilities, numbers, names of places). If the answer is already specific and sufficient, return "".\n') +
       'RESPOND JSON only: {"ack":"...","followUp":""}';
-    return aiChatRaw(sys, user, 700).then(function (raw) {
+    return aiChatRaw(sys, user, 700, (gemCfg() && gemCfg().turnModel) || null).then(function (raw) {
       var m = raw.match(/\{[\s\S]*\}/);
       if (!m) return null;
       var p = JSON.parse(m[0]);

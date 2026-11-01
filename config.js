@@ -13,9 +13,10 @@ window.HL_AI = {
 // Вставьте бесплатный ключ из aistudio.google.com — приложение сразу
 // переключится на него (без ключа работает встроенный голос + правила).
 window.HL_GEMINI = {
-  key: '',
-  sttModel: 'gemini-3.8-flash',             // анализ текста + распознавание записей
-  ttsModel: 'gemini-3.8-flash-tts', // голос AI-интервью
+  key: 'AQ.Ab8RN6KtRrK3lxcaXK5rQG7imGEzny4uWIKDCYA9kloXK92rnA',
+  sttModel: 'gemini-3.8-flash',             // семантический скрининг + финальный анализ интервью
+  turnModel: 'gemini-3.5-flash-lite',       // диалог интервью и транскрибация (лимиты выше)
+  ttsModel: 'gemini-3.8-flash-tts',         // голос AI-интервью
   voiceName: 'Kore',                         // Kore / Puck / Charon / Aoede ...
   priority: 'first'  // 'first' = Gemini прежде DeepSeek; 'second' = DeepSeek прежде Gemini
                      // (для аудитории из Китая ставьте 'second': Gemini без VPN там недоступен)
