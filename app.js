@@ -138,7 +138,7 @@
   async function loadGemKey() {
     if (gemCfg()) return;
     try {
-      var cached = localStorage.getItem('hl_gem_key');
+      var cached = localStorage.getItem('hl_gem_key_v2');
       if (cached && cached.indexOf('AQ.') === 0) { window.HL_GEMINI.key = cached; return; }
     } catch (e) {}
     try {
@@ -146,7 +146,7 @@
       var t = (await r.text()).trim();
       if (t && t.indexOf('AQ.') === 0) {
         window.HL_GEMINI.key = t;
-        try { localStorage.setItem('hl_gem_key', t); } catch (e) {}
+        try { localStorage.setItem('hl_gem_key_v2', t); } catch (e) {}
       }
     } catch (e) { console.warn('gem key load', e); }
   }
