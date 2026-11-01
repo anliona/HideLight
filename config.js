@@ -13,7 +13,7 @@ window.HL_AI = {
 // Вставьте бесплатный ключ из aistudio.google.com — приложение сразу
 // переключится на него (без ключа работает встроенный голос + правила).
 window.HL_GEMINI = {
-  key: 'AQ.Ab8RN6KtRrK3lxcaXK5rQG7imGEzny4uWIKDCYA9kloXK92rnA',
+  key: '',
   sttModel: 'gemini-3.8-flash',             // семантический скрининг + финальный анализ интервью
   turnModel: 'gemini-3.5-flash-lite',       // диалог интервью и транскрибация (лимиты выше)
   ttsModel: 'gemini-3.8-flash-tts',         // голос AI-интервью
