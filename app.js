@@ -338,7 +338,11 @@
       district: application.district, expectedSalary: application.salary,
       salaryCurrency: application.salCur, languages: application.langs, about: application.about };
     var iv = ((application.interview || {}).items || []).filter(function (x) { return x.a; });
-    if (iv.length) profile.voiceInterview = iv.map(function (x) { return { question: x.q, answer: x.a }; });
+    if (iv.length) profile.voiceInterview = iv.map(function (x) {
+      var o2 = { question: x.q, answer: x.a };
+      if (x.fu) { o2.followUp = x.fu.q; o2.answer2 = x.fu.a; }
+      return o2;
+    });
     const user =
       'VACANCY: ' + vacancy.title + ' at ' + (company || '') + ' (' + vacancy.district + ')' +
       (vacancy.salaryFrom ? ', salary from ' + vacancy.salaryFrom : '') + '\n' +
@@ -1019,6 +1023,33 @@
       speechSynthesis.speak(u);
     } catch (e) { console.warn('tts', e); }
   }
+  // две реплики подряд: осмысление AI + следующий вопрос (без перекрытия)
+  function voiceSpeak2(a, b) {
+    if (gemCfg()) {
+      geminiSpeak(a).then(function () { if (b) return geminiSpeak(b); })
+        .catch(function (e) {
+          console.warn('gemini tts2', e.status || e.message);
+          browserSpeak(a + (b ? ' ' + b : ''));
+        });
+      return;
+    }
+    try {
+      speechSynthesis.cancel();
+      var u1 = new SpeechSynthesisUtterance(a);
+      u1.lang = REC_LANG[getLang()] || 'ru-RU';
+      var v = voicePickLang();
+      if (v) u1.voice = v;
+      if (b) {
+        u1.onend = function () {
+          var u2 = new SpeechSynthesisUtterance(b);
+          u2.lang = u1.lang;
+          if (v) u2.voice = v;
+          speechSynthesis.speak(u2);
+        };
+      }
+      speechSynthesis.speak(u1);
+    } catch (e) { console.warn('tts2', e); }
+  }
   // озвучка вопроса: голос AI Studio (Gemini-TTS), при сбое — браузерный синтез
   function voiceSpeak(text) {
     if (gemCfg()) {
@@ -1042,7 +1073,11 @@
     var user =
       'An AI voice interview was conducted with a job applicant. Questions were asked aloud; answers are transcribed below.\n' +
       'TRANSCRIPT:\n' +
-      spoken.map(function (x, i) { return (i + 1) + '. Q: ' + x.q + '\n   A: ' + x.a; }).join('\n') + '\n\n' +
+      spoken.map(function (x, i) {
+        var s2 = (i + 1) + '. Q: ' + x.q + '\n   A: ' + x.a;
+        if (x.fu) s2 += '\n   Follow-up: ' + x.fu.q + '\n   A: ' + x.fu.a;
+        return s2;
+      }).join('\n') + '\n\n' +
       'TASKS:\n' +
       '1. summary: 2-3 friendly sentences about the candidate IN ALL THREE languages {"ru","zh","en"} — experience, strengths, anything notable or concerning. Base it ONLY on what was actually said.\n' +
       '2. verdict: fit score 0-100, level "green"|"amber"|"red" (green=strong, amber=worth a call, red=weak fit), and 2-4 short bullet reasons in ALL THREE languages.\n' +
@@ -1070,12 +1105,45 @@
       });
   }
 
+  /* ── диалоговый шаг: Gemini пересказывает ответ и решает, нужен ли уточняющий вопрос ── */
+  function interviewTurn(items, lang, noMore) {
+    var lines = [];
+    items.forEach(function (x) {
+      lines.push('AI asked: ' + x.q);
+      lines.push('Candidate answered: ' + x.a);
+      if (x.fu) {
+        lines.push('AI follow-up: ' + x.fu.q);
+        lines.push('Candidate answered: ' + x.fu.a);
+      }
+    });
+    var langNameMap = { ru: 'Russian', zh: 'Chinese', en: 'English' };
+    var sys = 'You are the AI voice interviewer conducting a short job screening interview. Reply ONLY with a valid JSON object.';
+    var user =
+      'Interview language: ' + (langNameMap[lang] || 'Russian') + '. ALL your text MUST be in that language.\n' +
+      'DIALOGUE SO FAR:\n' + lines.join('\n') + '\n\n' +
+      'TASKS:\n' +
+      '1. ack: ONE warm sentence showing you understood the LAST candidate answer — restate its key fact in your own words (never copy the exact wording).\n' +
+      (noMore
+        ? '2. followUp: "" (empty string).\n'
+        : '2. followUp: ONE short clarifying question about the last answer ONLY if it is vague, too short, or misses specifics an employer would need (responsibilities, numbers, names of places). If the answer is already specific and sufficient, return "".\n') +
+      'RESPOND JSON only: {"ack":"...","followUp":""}';
+    return aiChatRaw(sys, user, 700).then(function (raw) {
+      var m = raw.match(/\{[\s\S]*\}/);
+      if (!m) return null;
+      var p = JSON.parse(m[0]);
+      return { ack: (p.ack || '').trim(), followUp: (p.followUp || '').trim() };
+    }).catch(function (e) {
+      console.warn('interview turn', e.status || e.message);
+      return null;
+    });
+  }
+
   function openVoiceInterview() {
     var old = document.getElementById('voice-modal');
     if (old) old.remove();
     voiceStop();
     var qs = voiceQS();
-    var items = qs.map(function (q) { return { q: q, a: '' }; });
+    var items = qs.map(function (q) { return { q: q, a: '', fu: null, fuQ: '', fuAsked: false, ack: '' }; });
     var idx = 0;
     var done = false;
     var started = false;
@@ -1085,6 +1153,8 @@
     // web = живое браузерное распознавание; typed = печать
     var mode = gemCfg() ? 'gemini' : (canRec ? 'web' : 'typed');
     var micStream = null, mediaRec = null, recChunks = [];
+    var fuMode = false;    // текущий шаг — ответ на уточняющий вопрос AI
+    var turnBusy = false;  // идёт осмысление ответа моделью
 
     var overlay = el('div', 'qr-modal');
     overlay.id = 'voice-modal';
@@ -1112,10 +1182,15 @@
       }
     }
 
+    function curAns() {
+      return fuMode ? ((items[idx].fu || {}).a || '') : (items[idx].a || '');
+    }
+
     function draw() {
       clear(body);
       if (idx === 0 && !items[0].a && finalText === '' && !started) return drawIntro();
       if (idx >= qs.length) return drawProcessing();
+      if (turnBusy) return drawThinking();
       drawQuestion();
     }
 
@@ -1134,17 +1209,35 @@
       body.appendChild(row);
     }
 
+    function drawThinking() {
+      body.appendChild(el('div', 'voice-qnum', t('voice.thinking')));
+      if (items[idx] && items[idx].ack) body.appendChild(ackBubble(items[idx].ack));
+      var sp = el('div', 'voice-processing', '⏳');
+      sp.style.fontSize = '30px';
+      body.appendChild(sp);
+    }
+
+    function ackBubble(text) {
+      var ab = el('div', 'voice-ack');
+      ab.appendChild(el('b', null, 'AI'));
+      ab.appendChild(el('div', null, text));
+      return ab;
+    }
+
     function drawQuestion() {
+      var qText = fuMode ? items[idx].fuQ : qs[idx];
+      if (fuMode) body.appendChild(el('div', 'voice-fu-tag', t('voice.followUp')));
       body.appendChild(el('div', 'voice-qnum', t('voice.qOf', { n: idx + 1, all: qs.length })));
+      if (items[idx].ack) body.appendChild(ackBubble(items[idx].ack));
       var qrow = el('div', 'voice-row');
       qrow.style.alignItems = 'center';
-      qrow.appendChild(Object.assign(el('div', 'voice-qtext', qs[idx]), { style: 'flex:1;margin:0;' }));
+      qrow.appendChild(Object.assign(el('div', 'voice-qtext', qText), { style: 'flex:1;margin:0;' }));
       var rep = el('button', 'btn btn-ghost btn-sm', t('voice.repeat'));
-      rep.addEventListener('click', function () { voiceSpeak(qs[idx]); });
+      rep.addEventListener('click', function () { voiceSpeak(qText); });
       qrow.appendChild(rep);
       body.appendChild(qrow);
 
-      var answer = items[idx].a;
+      var answer = curAns();
       if (!committed && answer) committed = true;
       var nextB = null;
 
@@ -1175,31 +1268,43 @@
       } else {
         body.appendChild(el('p', 'voice-live', t('voice.typeNote')));
         var ta = el('textarea', 'voice-typed');
-        ta.value = items[idx].a || '';
+        ta.value = answer || '';
         ta.addEventListener('input', function () {
-          items[idx].a = ta.value.trim();
-          if (nextB) nextB.disabled = !(items[idx].a && items[idx].a.length > 1);
+          var val = ta.value.trim();
+          if (fuMode) {
+            items[idx].fu = items[idx].fu || { q: items[idx].fuQ, a: '' };
+            items[idx].fu.a = val;
+          } else {
+            items[idx].a = val;
+          }
+          if (nextB) nextB.disabled = !(val && val.length > 1);
         });
         body.appendChild(ta);
       }
 
       var row = el('div', 'voice-row');
-      if (committed && items[idx].a) {
+      if (committed && answer) {
         var ansBox = el('div', 'voice-ans');
         ansBox.appendChild(el('b', null, t('voice.said')));
-        ansBox.appendChild(el('div', 'qa-a', items[idx].a));
+        ansBox.appendChild(el('div', 'qa-a', answer));
         body.appendChild(ansBox);
         var redo = el('button', 'btn btn-ghost btn-sm', t('voice.rerecord'));
         redo.addEventListener('click', function () {
-          committed = false; finalText = ''; interimText = ''; items[idx].a = '';
+          committed = false; finalText = ''; interimText = '';
+          if (fuMode) items[idx].fu = { q: items[idx].fuQ, a: '' };
+          else items[idx].a = '';
           draw();
         });
         row.appendChild(redo);
       }
       var skip = el('button', 'btn btn-ghost btn-sm', t('voice.skip'));
-      skip.addEventListener('click', function () { items[idx].a = ''; next(); });
+      skip.addEventListener('click', function () {
+        if (fuMode) items[idx].fu = { q: items[idx].fuQ, a: '' };
+        else items[idx].a = '';
+        advance(null);
+      });
       nextB = el('button', 'btn btn-primary btn-sm', t('voice.next'));
-      nextB.disabled = !(items[idx].a && items[idx].a.length > 1);
+      nextB.disabled = !(answer && answer.length > 1);
       nextB.addEventListener('click', next);
       row.appendChild(skip);
       row.appendChild(nextB);
@@ -1245,7 +1350,7 @@
       setTimeout(function () {
         if (done || myIdx !== idx || committed) return;
         var a = (finalText || interimText || '').trim();
-        if (a) { items[myIdx].a = a; committed = true; draw(); }
+        if (a) commitAnswer(a, myIdx, live);
       }, 700);
     }
 
@@ -1293,7 +1398,7 @@
           if (!b64) return;
           if (live) live.textContent = t('voice.recognizing');
           geminiTranscribe(b64, mtype).then(function (txt) {
-            commitVoice(txt, myIdx, live);
+            commitAnswer(txt, myIdx, live);
           }).catch(function (e) {
             console.warn('gemini stt', e.status || e.message);
             // Gemini недоступен — откат на браузерное распознавание или печать
@@ -1316,25 +1421,65 @@
       if (hold) hold.classList.remove('rec');
       if (lbl) lbl.textContent = t('voice.hold');
     }
-    function commitVoice(txt, myIdx, live) {
+    function commitAnswer(txt, myIdx, live) {
       if (done || myIdx !== idx) return;
       var a = (txt || '').trim();
-      if (a) {
+      if (!a) { if (live) live.textContent = t('voice.typeNote'); return; }
+      if (fuMode) {
+        items[myIdx].fu = { q: items[myIdx].fuQ, a: a };
+      } else {
         items[myIdx].a = a;
-        committed = true;
-        draw();
-      } else if (live) {
-        live.textContent = t('voice.typeNote');
       }
+      committed = true;
+      draw();
     }
 
+    /* Дальше: сначала AI осмысливает ответ, затем уточнение или следующий вопрос */
     function next() {
       stopRec();
       stopGemRec();
+      var ans = curAns();
+      if (!ans) { advance(null); return; }
+      if (gemCfg() && !items[idx].fuAsked && !fuMode) {
+        items[idx].fuAsked = true;
+        runTurn(false);
+        return;
+      }
+      if (fuMode && gemCfg()) {
+        runTurn(true);
+        return;
+      }
+      advance(null);
+    }
+
+    function runTurn(noMore) {
+      turnBusy = true;
+      draw();
+      interviewTurn(items, getLang(), noMore).then(function (res) {
+        turnBusy = false;
+        if (done) return;
+        var ack = res ? (res.ack || '') : '';
+        var fu = res ? (res.followUp || '') : '';
+        if (ack) items[idx].ack = ack;
+        if (fu && fu.length > 8 && !noMore) {
+          items[idx].fuQ = fu;
+          items[idx].fu = { q: fu, a: '' };
+          fuMode = true;
+          voiceSpeak2(ack, fu);
+          draw();
+        } else {
+          advance(ack);
+        }
+      });
+    }
+
+    function advance(ack) {
       committed = false; finalText = ''; interimText = '';
+      fuMode = false;
       idx++;
       if (idx >= qs.length) return drawProcessing();
-      voiceSpeak(qs[idx]);
+      if (ack) voiceSpeak2(ack, qs[idx]);
+      else voiceSpeak(qs[idx]);
       draw();
     }
 
@@ -1859,6 +2004,10 @@
           var qa = el('div', 'qa');
           qa.appendChild(el('b', null, x.q));
           qa.appendChild(el('div', 'qa-a', '«' + x.a + '»'));
+          if (x.fu && x.fu.a) {
+            qa.appendChild(el('b', null, x.fu.q));
+            qa.appendChild(el('div', 'qa-a', '«' + x.fu.a + '»'));
+          }
           det.appendChild(qa);
         });
         iv.appendChild(det);
