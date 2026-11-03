@@ -111,11 +111,14 @@
   function aiEnabled() { return !!aiCfg(); }
   async function llmChat(messages, maxTokens) {
     const cfg = aiCfg();
+    const ctl = new AbortController();
+    const tm = setTimeout(function () { ctl.abort(); }, 30000);
     const r = await fetch(cfg.base.replace(/\/$/, '') + '/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
       body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2, max_tokens: maxTokens || 900 }),
-    });
+      signal: ctl.signal,
+    }).finally(function () { clearTimeout(tm); });
     if (!r.ok) {
       var detail = '';
       try { detail = (await r.text()).slice(0, 200); } catch (e) {}
@@ -165,11 +168,14 @@
       systemInstruction: { parts: [{ text: sys }] },
       generationConfig: gc,
     };
+    const ctl = new AbortController();
+    const tm = setTimeout(function () { ctl.abort(); }, 30000);
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
       model + ':generateContent?key=' + encodeURIComponent(cfg.key), {
       method: 'POST',
       body: JSON.stringify(body),
-    });
+      signal: ctl.signal,
+    }).finally(function () { clearTimeout(tm); });
     if (!r.ok) {
       var err = new Error('GEMINI ' + r.status);
       err.status = r.status;
@@ -235,11 +241,14 @@
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.voiceName || 'Kore' } } },
       },
     };
+    const ctl = new AbortController();
+    const tm = setTimeout(function () { ctl.abort(); }, 30000);
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
       (cfg.ttsModel || 'gemini-2.5-flash-preview-tts') + ':generateContent?key=' + encodeURIComponent(cfg.key), {
       method: 'POST',
       body: JSON.stringify(body),
-    });
+      signal: ctl.signal,
+    }).finally(function () { clearTimeout(tm); });
     if (!r.ok) {
       var err = new Error('GEMINI TTS ' + r.status);
       err.status = r.status;
