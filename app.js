@@ -256,7 +256,12 @@
       : 'data:audio/wav;base64,' + pcmToWavB64(pd.data, (/rate=(\d+)/.exec(pd.mimeType || '') || [])[1] || 24000);
     if (_gemAudio) { try { _gemAudio.pause(); } catch (e) {} }
     _gemAudio = new Audio(src);
-    await _gemAudio.play();
+    // резолвим по ЗАВЕРШЕНИИ звучания — иначе цепочка реплик перебивает первую
+    await new Promise(function (done2) {
+      _gemAudio.onended = done2;
+      _gemAudio.onerror = done2;
+      _gemAudio.play().catch(done2);
+    });
   }
   // запись ответа → текст
   async function geminiTranscribe(b64, mime) {
@@ -987,20 +992,17 @@
     ru: [
       'Расскажите коротко о вашем опыте работы в этой сфере.',
       'Какой график работы вам удобен? Есть ли ограничения по сменам или времени?',
-      'Какие у вас сильные стороны и что вы умеете лучше всего?',
-      'Почему вам интересна эта работа?',
+      'Почему вам интересна эта работа и что у вас получается лучше всего?',
     ],
     zh: [
       '请简单介绍一下您在这一行业的工作经验。',
       '什么样的工作时间安排对您合适？对班次或时间有限制吗？',
-      '您的主要优势是什么？您最擅长什么？',
-      '为什么这份工作让您感兴趣？',
+      '为什么这份工作让您感兴趣？您最擅长什么？',
     ],
     en: [
       'Tell us briefly about your experience in this field.',
       'What work schedule suits you? Any limits on shifts or hours?',
-      'What are your strengths and what are you best at?',
-      'Why does this job interest you?',
+      'Why does this job interest you, and what are you best at?',
     ],
   };
   var REC_LANG = { ru: 'ru-RU', zh: 'zh-CN', en: 'en-US' };
@@ -1158,6 +1160,7 @@
     var micStream = null, mediaRec = null, recChunks = [];
     var fuMode = false;    // текущий шаг — ответ на уточняющий вопрос AI
     var turnBusy = false;  // идёт осмысление ответа моделью
+    var lastAck = '';      // осмысление предыдущего ответа — показываем на след. вопросе
 
     var overlay = el('div', 'qr-modal');
     overlay.id = 'voice-modal';
@@ -1229,6 +1232,7 @@
 
     function drawQuestion() {
       var qText = fuMode ? items[idx].fuQ : qs[idx];
+      if (!fuMode && lastAck) body.appendChild(ackBubble(lastAck));
       if (fuMode) body.appendChild(el('div', 'voice-fu-tag', t('voice.followUp')));
       body.appendChild(el('div', 'voice-qnum', t('voice.qOf', { n: idx + 1, all: qs.length })));
       if (items[idx].ack) body.appendChild(ackBubble(items[idx].ack));
@@ -1463,7 +1467,7 @@
         if (done) return;
         var ack = res ? (res.ack || '') : '';
         var fu = res ? (res.followUp || '') : '';
-        if (ack) items[idx].ack = ack;
+        if (ack) { items[idx].ack = ack; lastAck = ack; }
         if (fu && fu.length > 8 && !noMore) {
           items[idx].fuQ = fu;
           items[idx].fu = { q: fu, a: '' };
