@@ -1907,24 +1907,9 @@
       var all = (blob.applications || []).filter(function (a) { return a.vacancyId === vid; })
         .sort(function (x, y) { return y.createdAt - x.createdAt; });
 
-      // AI-дожим: заявки без разбора, если ключ подключён
-      var pending = all.filter(function (a) { return !a.screening || a.screening.engine !== 'ai'; });
-      var cfgAi = aiCfg();
-      if (pending.length && cfgAi) {
-        var note = el('p', 'muted', 'AI: ' + pending.length + '…');
-        body.appendChild(note);
-        for (var i = 0; i < pending.length; i++) {
-          try {
-            pending[i].screening = await aiScreen(v, (blob.company || {}).name, pending[i]);
-            if (pending[i].screening.autoDeclined) pending[i].status = 'declined';
-          } catch (e) {
-            pending[i].screening = rulesScreen(v, pending[i]);
-            pending[i].screening.aiError = e.message;
-          }
-        }
-        await writeMyBlob(blob);
-        note.remove();
-      }
+      // Авто-пересмотр здесь убран: он блокировал показ карточек на минуты при
+      // сбоях/лимитах Gemini. Анкеты уже разбираются семантически при отправке;
+      // доразобрать старые правила-заявки можно кнопкой «Проверить отклики через AI».
 
       var active = all.filter(function (a) { return a.status !== 'declined'; });
       var declined = all.filter(function (a) { return a.status === 'declined'; });
