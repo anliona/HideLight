@@ -1506,8 +1506,9 @@
       sp.style.fontSize = '34px';
       body.appendChild(sp);
       interviewAnalyze(items, getLang()).then(function (res) {
-        if (done) return;
+        // интервью состоялось — результат сохраняем даже если окно закрыли раньше
         window.__hl_interview = res;
+        if (done) return;
         updateVoiceStatus();
         prefillAbout(res);
         drawDone(res);
