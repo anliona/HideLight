@@ -1665,27 +1665,6 @@
       cf.name.value = (blob.company && blob.company.name) || me.name || '';
       cf.city.value = (blob.company && blob.company.city) || '';
       cf.desc.value = (blob.company && blob.company.desc) || '';
-      var st = document.getElementById('ai-status');
-      var cfgAi = aiCfg();
-      st.textContent = cfgAi ? t('emp.aiReady') + ' · ' + cfgAi.model : t('emp.aiKeyMissing');
-      st.className = cfgAi ? 'on' : 'off';
-      var pendingCount = (blob.applications || []).filter(function (a) { return !a.screening || a.screening.engine !== 'ai'; }).length;
-      var pEl = document.getElementById('ai-pending');
-      if (pEl) pEl.textContent = pendingCount ? t('emp.aiPending', { n: pendingCount }) : t('emp.aiNoPending');
-      var runBtn = document.getElementById('btn-ai-run');
-      if (runBtn) runBtn.disabled = !cfgAi || !pendingCount;
-      var chat = document.getElementById('ai-chat');
-      if (chat) {
-        clear(chat);
-        var screenedApps = (blob.applications || []).filter(function (a) { return a.screening; })
-          .sort(function (x, y) { return y.createdAt - x.createdAt; }).slice(0, 8);
-        if (screenedApps.length) {
-          chat.hidden = false;
-          screenedApps.forEach(function (a) {
-            aiChatAdd('bot', a.name, (a.screening.score || 0) + '% · ' + t('level.' + a.screening.level));
-          });
-        }
-      }
       var list = document.getElementById('emp-vacs');
       clear(list);
       var vacs = (blob.vacancies || []).slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
@@ -1811,68 +1790,6 @@
   }
 
   /* ── Чат AI-скрининга (без ввода вопросов — только лента) ── */
-  function aiChatBox() { return document.getElementById('ai-chat'); }
-  function aiChatAdd(kind, who, text) {
-    var box = aiChatBox();
-    if (!box) return;
-    box.hidden = false;
-    var m = el('div', 'ai-msg ' + kind);
-    if (who) m.appendChild(el('span', 'who', who));
-    m.appendChild(el('div', null, text));
-    box.appendChild(m);
-    box.scrollTop = box.scrollHeight;
-    return m;
-  }
-  function aiChatReset() {
-    var box = aiChatBox();
-    if (!box) return;
-    clear(box);
-    box.hidden = false;
-  }
-
-  /* ══════════ Кнопка AI-скрининга ══════════
-     Ключ DeepSeek принадлежит платформе; работодатель лишь запускает разбор
-     всех откликов, у которых ещё нет вердикта. */
-  document.getElementById('btn-ai-run').addEventListener('click', function () {
-    var btn = this;
-    if (btn.disabled) return;
-    var stEl = document.getElementById('ai-status');
-    var pEl = document.getElementById('ai-pending');
-    setBusy(btn, true);
-    (async function () {
-      var done = 0, failed = false, failMsg = null;
-      try {
-        var blob = await readMyBlob();
-        var vacs = blob.vacancies || [];
-        for (var i = 0; i < vacs.length; i++) {
-          var v = vacs[i];
-          var apps = (blob.applications || []).filter(function (a) {
-            return a.vacancyId === v.id && (!a.screening || a.screening.engine !== 'ai');
-          });
-          for (var j = 0; j < apps.length; j++) {
-            if (stEl) stEl.textContent = t('emp.aiRunning') + ' (' + (done + 1) + ')';
-            try {
-              apps[j].screening = await aiScreen(v, (blob.company || {}).name, apps[j]);
-              if (apps[j].screening.autoDeclined) apps[j].status = 'declined';
-              done++;
-            } catch (e) {
-              apps[j].screening = rulesScreen(v, apps[j]);
-              apps[j].screening.aiError = e.message;
-              failed = true;
-              if (!failMsg && e.status === 402) failMsg = t('emp.aiNoBalance');
-              if (!failMsg && (e.status === 401 || e.status === 403)) failMsg = t('emp.aiBadKey');
-            }
-          }
-        }
-        await writeMyBlob(blob);
-        if (stEl) stEl.textContent = failed ? (failMsg || t('emp.aiFail')) : t('emp.aiDone', { n: done });
-        if (pEl) pEl.textContent = t('emp.aiNoPending');
-        if (failMsg) stEl.className = 'off';
-      } catch (e2) { console.error(e2); }
-      setBusy(btn, false);
-    })();
-  });
-
   /* ══════════ Отклики работодателя ══════════ */
   function renderEmpVac(vid) {
     show('view-empvac');
