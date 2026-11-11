@@ -861,12 +861,7 @@
     if (v.reqLang && v.reqLang !== 'any') {
       head.appendChild(el('div', 'lang-note', t('apply.langNote', { lang: langName(v.reqLang) })));
     }
-    if ((v.rules || []).length) {
-      head.appendChild(el('div', 'rules-head', t('vac.rulesHead')));
-      var rl = el('div', 'rules-list');
-      v.rules.forEach(function (r, i) { rl.appendChild(el('div', 'rule-line', (i + 1) + '. ' + r)); });
-      head.appendChild(rl);
-    }
+    // правила отбора соискателю не показываем — это внутренний инструмент владельца
     return head;
   }
 
