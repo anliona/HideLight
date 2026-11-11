@@ -278,7 +278,9 @@
     const out = await geminiJSON(cfg.turnModel || cfg.sttModel || 'gemini-2.5-flash', [
       { inlineData: { mimeType: mime || 'audio/webm', data: b64 } },
       { text: 'Transcribe this audio recording verbatim, in the language actually spoken. ' +
-        'If it is silence or noise, reply with an empty text. Reply JSON {"text":"..."}' },
+        'The recording may be quiet or noisy (built-in phone microphone) — do your best even at low volume, ' +
+        'do not stop at the first unclear word. If it is complete silence, reply with an empty text. ' +
+        'Reply JSON {"text":"..."}' },
     ], 'You are a speech-to-text engine. Output only the requested JSON.', 512);
     try { return (JSON.parse(out).text || '').trim(); } catch (e) { return ''; }
   }
@@ -1323,6 +1325,7 @@
     }
 
     function startRec(hold, live, lbl) {
+      voiceStop();
       var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       finalText = ''; interimText = '';
       recInst = new SR();
@@ -1371,7 +1374,9 @@
         mode = canRec ? 'web' : 'typed';
         return;
       }
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+      navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      }).then(function (st) {
         micStream = st;
       }).catch(function (e) {
         console.warn('mic denied', e);
@@ -1379,8 +1384,29 @@
         if (started && !done && idx < qs.length) draw();
       });
     }
+    function ensureMic() {
+      // свежий поток на каждую запись: на iOS встроенный микрофон «залипает»
+      // после воспроизведения звука (с гарнитурой маршрутизация другая и работает);
+      // разрешение уже выдано — повторный запрос мгновенный и по жесту пользователя
+      releaseMic();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return Promise.reject(new Error('no getUserMedia'));
+      }
+      return navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      }).then(function (st) { micStream = st; return st; });
+    }
     function startGemRec(hold, live, lbl) {
-      if (!micStream) { requestMic(); if (!micStream) return; }
+      voiceStop(); // микрофон не должен слышать ещё играющий голос AI
+      ensureMic().then(function (stream) {
+        startRecorderWithStream(stream, hold, live, lbl);
+      }).catch(function (e) {
+        console.warn('mic denied', e);
+        mode = canRec ? 'web' : 'typed';
+        if (started && !done && idx < qs.length) draw();
+      });
+    }
+    function startRecorderWithStream(stream, hold, live, lbl) {
       var mime = '';
       try {
         if (window.MediaRecorder && MediaRecorder.isTypeSupported &&
@@ -1388,7 +1414,7 @@
       } catch (e) {}
       try {
         recChunks = [];
-        mediaRec = new MediaRecorder(micStream, mime ? { mimeType: mime } : undefined);
+        mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       } catch (e) {
         console.warn('MediaRecorder', e);
         mode = canRec ? 'web' : 'typed';
@@ -1401,6 +1427,7 @@
         var mtype = (mediaRec && mediaRec.mimeType) || mime || 'audio/webm';
         var blob = new Blob(recChunks, { type: mtype });
         recChunks = [];
+        releaseMic(); // аудиоданные уже сняты — освобождаем сессию до следующего ответа
         if (!blob.size || done || myIdx !== idx) return;
         var fr = new FileReader();
         fr.onload = function () {
