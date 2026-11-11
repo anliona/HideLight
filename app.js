@@ -355,7 +355,8 @@
       'Judge by MEANING, never by exact word matches. Reply ONLY with the requested JSON object.';
     var profile = { name: application.name, yearsExperience: application.years,
       district: application.district, expectedSalary: application.salary,
-      salaryCurrency: application.salCur, languages: application.langs, about: application.about };
+      salaryCurrency: application.salCur, vacancyCurrency: vacancy.cur,
+      languages: application.langs, about: application.about };
     var iv = ((application.interview || {}).items || []).filter(function (x) { return x.a; });
     if (iv.length) profile.voiceInterview = iv.map(function (x) {
       var o2 = { question: x.q, answer: x.a };
@@ -376,6 +377,10 @@
       '- Extract facts from BOTH the written profile AND the voice interview answers (the transcript is the richer source).\n' +
       '- pass=false ONLY when the meaning is genuinely missing or contradicts the rule; then the reason says what is worth clarifying on a call.\n' +
       '- Numbers still matter: "от 3 лет" requires at least 3 years of real experience.\n\n' +
+      '- Salary: expectedSalary is in salaryCurrency, salary rules are in vacancyCurrency. CONVERT currencies before comparing ' +
+      '(rough rates: 1 CNY ≈ 12 RUB, 1 USD ≈ 90 RUB, 1 EUR ≈ 98 RUB). Example: rule "wants to earn between 8,000 and 10,000" CNY ' +
+      'is satisfied by an applicant expecting 100,000 RUB (~8,300 CNY). PASS such rules when the amounts match after conversion, ' +
+      'and mention the conversion in the reason.\n\n' +
       'TASKS:\n' +
       '1. detectedLang: "ru"|"zh"|"en" of the about text.\n' +
       '2. aboutTranslated: translate the about text into ALL THREE languages: {"ru":"...","zh":"...","en":"..."}.\n' +
@@ -462,6 +467,47 @@
         if (y <= max) { push('ok', T => T.yearsOk(T.yearsWord(y))); ok++; }
         else { push('bad', T => T.yearsWord(y) + ' > ' + max); bad++; }
         return;
+      }
+      // зарплатные правила: сравниваем СУММУ из структурного поля анкеты
+      // с вилкой из правила, конвертируя валюту соискателя в валюту вакансии
+      const salWords = /зарплат|заработ|salary|earn|плат|доход|工|薪/.test(rl);
+      if (salWords) {
+        const s2 = rl.replace(/(\d[\d\s,]*)\s*(год\w*|лет|年|month\w*|месяц\w*|day\w*|дн\w*)/g, ' ');
+        const nums = (s2.match(/\d[\d\s,]*/g) || [])
+          .map(x => parseFloat(x.replace(/[\s,]/g, '')))
+          .filter(x => isFinite(x) && x > 0);
+        if (nums.length) {
+          const sal = application.salary || 0;
+          const RATES = { RUB: 1, CNY: 12, USD: 90, EUR: 98 }; // 1 единица в рублях
+          const target = sal ? Math.round(sal * (RATES[application.salCur] || 1) / (RATES[vacancy.cur] || 1)) : 0;
+          let lo = 0, hi = 0;
+          if (nums.length >= 2) { lo = Math.min(nums[0], nums[1]); hi = Math.max(nums[0], nums[1]); }
+          else if (/до|under|less|меньше/.test(rl)) hi = nums[0];
+          else lo = nums[0];
+          const forkTxt = lo && hi ? lo + '–' + hi : (lo ? 'от ' + lo : 'до ' + hi);
+          const conv = sal ? ' (' + money(sal, application.salCur) + ' ≈ ' + money(target, vacancy.cur) + ')' : '';
+          const W = { ru: 'вилка ' + forkTxt + ' ' + vacancy.cur, zh: '薪资范围 ' + forkTxt, en: 'salary range ' + forkTxt };
+          if (!sal) {
+            reasons.push({ s: 'neutral', ru: 'желаемая зарплата не указана — ' + W.ru,
+              zh: '未填写期望薪资——' + W.zh, en: 'expected salary not stated — ' + W.en });
+          } else if (lo && target < lo * 0.9) {
+            bad++;
+            reasons.push({ s: 'bad', ru: 'ожидает ' + money(sal, application.salCur) + conv + ' — ниже вилки ' + forkTxt + ' ' + vacancy.cur,
+              zh: '期望 ' + money(sal, application.salCur) + '——低于范围 ' + forkTxt,
+              en: 'expects ' + money(sal, application.salCur) + conv + ' — below the range ' + forkTxt });
+          } else if (hi && target > hi * 1.1) {
+            bad++;
+            reasons.push({ s: 'bad', ru: 'ожидает ' + money(sal, application.salCur) + conv + ' — выше вилки ' + forkTxt + ' ' + vacancy.cur,
+              zh: '期望 ' + money(sal, application.salCur) + '——高于范围 ' + forkTxt,
+              en: 'expects ' + money(sal, application.salCur) + conv + ' — above the range ' + forkTxt });
+          } else {
+            ok++;
+            reasons.push({ s: 'ok', ru: 'ожидает ' + money(sal, application.salCur) + conv + ' — в рамках вилки ' + forkTxt + ' ' + vacancy.cur,
+              zh: '期望 ' + money(sal, application.salCur) + '——在范围内 ' + forkTxt,
+              en: 'expects ' + money(sal, application.salCur) + conv + ' — within the range ' + forkTxt });
+          }
+          return;
+        }
       }
       const kws = tokens(rule).filter(w => w.length >= 4 && !STOP.has(w));
       if (!kws.length) { push('neutral', () => rule); return; }
