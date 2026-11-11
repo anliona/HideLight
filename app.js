@@ -449,7 +449,10 @@
       push(knows ? 'ok' : 'bad', T => knows ? T.langOk(lname) : T.langBad(lname));
       knows ? ok++ : bad++;
     }
-    const hay = tokens(application.about + ' ' + application.district);
+    const ivText = application.interview ? (application.interview.items || [])
+      .map(x => [x.a, x.fu && x.fu.a].filter(Boolean).join(' ')).join(' ') : '';
+    const hay = tokens(application.about + ' ' + application.district + ' ' + ivText);
+    const hayRaw = (application.about || '') + ' ' + ivText;
     (vacancy.rules || []).forEach(rule => {
       const soft = /—\s*(плюс|да|готовы|готов|готова)\s*$/i.test(rule.trim());
       const rl = String(rule).toLowerCase().replace(/ё/g, 'е');
@@ -468,6 +471,50 @@
         else { push('bad', T => T.yearsWord(y) + ' > ' + max); bad++; }
         return;
       }
+      // правила об опыте на любом языке ("over 3 years of experience", "3+ года"):
+      // сравниваем структурированные годы И опыт, заявленный словами в анкете/интервью
+      if (/experience|опыт|стаж|经验/.test(rl)) {
+        const em = rl.match(/(\d+)\s*(\+)?\s*(?:years?|года|лет|год|年)/);
+        if (em) {
+          const min = +em[1];
+          const y = application.years || 0;
+          const claim = hayRaw.match(/(\d+)\s*(\+)?\s*(?:years?|года|лет|год|年)/i);
+          const claimed = claim ? +claim[1] : 0;
+          const best = Math.max(y, claimed);
+          const who = claimed > y ? ' (в анкете указано ~' + claimed + ')' : '';
+          const M = {
+            ok: { ru: 'опыт ~' + best + ' лет' + who + ' — соответствует требованию (от ' + min + ')',
+                  zh: '经验约 ' + best + ' 年——满足要求（至少 ' + min + '）',
+                  en: 'experience ~' + best + ' years' + who + ' — meets the requirement (from ' + min + ')' },
+            low: { ru: 'опыт ~' + best + ' лет' + who + ' — меньше требуемых ' + min,
+                   zh: '经验约 ' + best + ' 年——不足 ' + min,
+                   en: 'experience ~' + best + ' years' + who + ' — less than required ' + min }
+          };
+          if (best >= min) { ok++; reasons.push({ s: 'ok', ru: M.ok.ru, zh: M.ok.zh, en: M.ok.en }); }
+          else if (soft) { reasons.push({ s: 'neutral', ru: 'бонус, не обязателен: ' + rule, zh: '加分项：' + rule, en: 'bonus, not required: ' + rule }); }
+          else { bad++; reasons.push({ s: 'bad', ru: M.low.ru, zh: M.low.zh, en: M.low.en }); }
+          return;
+        }
+      }
+      // правила об образовании: master/PhD/диплом/университет в любом языке
+      // считаются подтверждением «higher education» — сравниваем по смыслу маркеров
+      if (/образован|диплом|degree|diploma|education|универс|university|college|institute|магист|master|бакалавр|bachelor|phd|ph\.d|аспир|博士|硕士|学士|学位|学历|大学/.test(rl)) {
+        const E = /master\w*|магист\w*|ph\.?\s?d|degree|диплом\w*|универс\w*|university|college|institute|бакалавр\w*|bachelor|аспир\w*|доктор\w*|博士|硕士|学士|大学|образов\w*|graduate\w*|выпуск\w*/i;
+        const hit = E.exec(hayRaw);
+        const M = {
+          ok: { ru: 'в анкете видно образование: «' + (hit ? hit[0] : '') + '» — соответствует',
+                zh: '申请中可见学历：「' + (hit ? hit[0] : '') + '」——符合',
+                en: 'education visible in the application: "' + (hit ? hit[0] : '') + '" — matches' },
+          no: { ru: 'в анкете не видно упоминания об образовании — стоит уточнить при звонке',
+                zh: '申请中未见学历信息——建议电话确认',
+                en: 'no education mentioned in the application — worth checking on a call' }
+        };
+        if (hit) { ok++; reasons.push({ s: 'ok', ru: M.ok.ru, zh: M.ok.zh, en: M.ok.en }); }
+        else if (soft) { reasons.push({ s: 'neutral', ru: 'бонус, не обязателен: ' + rule, zh: '加分项：' + rule, en: 'bonus, not required: ' + rule }); }
+        else { bad++; reasons.push({ s: 'bad', ru: M.no.ru, zh: M.no.zh, en: M.no.en }); }
+        return;
+      }
+
       // зарплатные правила: сравниваем СУММУ из структурного поля анкеты
       // с вилкой из правила, конвертируя валюту соискателя в валюту вакансии
       const salWords = /зарплат|заработ|salary|earn|плат|доход|工|薪/.test(rl);
