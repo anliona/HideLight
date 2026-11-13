@@ -998,6 +998,7 @@
       form.name.value = me.name || '';
       document.getElementById('lang-err').hidden = true;
       window.__hl_interview = null;
+      updateSalaryLabels();
       var vs = document.getElementById('voice-status');
       if (vs) { vs.hidden = true; vs.innerHTML = ''; }
       show('view-apply');
@@ -1005,6 +1006,31 @@
   }
 
   document.getElementById('apply-form').addEventListener('input', function () { markDirty('apply-form'); });
+  /* Подпись полей зарплаты следует за выбранным селектором валюты */
+  var PERIOD_WORD = { ru: 'мес', zh: '月', en: 'mo' };
+  function updateSalaryLabels() {
+    function lab(input) {
+      var l = input.closest('label');
+      return l ? l.querySelector('span') : null;
+    }
+    var af = document.getElementById('apply-form');
+    if (af && af.salary && af.salCur) {
+      var la = lab(af.salary);
+      if (la) la.textContent = t('apply.salary') + ' (' + af.salCur.value + '/' + (PERIOD_WORD[getLang()] || 'mo') + ')';
+    }
+    var cf = document.getElementById('create-form');
+    if (cf && cf.salaryFrom && cf.cur) {
+      var lc = lab(cf.salaryFrom);
+      if (lc) lc.textContent = t('create.salary') + ' (' + cf.cur.value + '/' + (PERIOD_WORD[getLang()] || 'mo') + ')';
+    }
+  }
+  document.getElementById('apply-form').addEventListener('change', function (e) {
+    if (e.target && e.target.name === 'salCur') updateSalaryLabels();
+  });
+  document.getElementById('create-form').addEventListener('change', function (e) {
+    if (e.target && e.target.name === 'cur') updateSalaryLabels();
+  });
+
   /* Скрининг на стороне соискателя при отправке анкеты:
      сначала семантический AI (Gemini → DeepSeek), при сбое — офлайн-правила. */
   async function screenApplication(v, application) {
@@ -1708,7 +1734,7 @@
   }
 
   /* ══════════ Кабинет работодателя ══════════ */
-  function renderCreate() { show('view-create'); }
+  function renderCreate() { show('view-create'); updateSalaryLabels(); }
 
   document.getElementById('create-form').addEventListener('input', function () { markDirty('create-form'); });
   document.getElementById('create-form').addEventListener('submit', function (e) {
